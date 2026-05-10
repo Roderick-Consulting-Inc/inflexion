@@ -1,0 +1,323 @@
+---
+title: "A Spanish-Grammar Esoteric Language: First Installment"
+subtitle: "Grammar as Semantic Substrate, with a Hypothesis on LLM Prompting Density"
+author:
+  - Ramon Rodriguez
+affiliation: RCI
+date: 2026-05-09
+abstract: |
+  Esoteric programming languages have engaged English natural-language structure for decades — Shakespeare, Inform 7, Rockstar, LOLCODE, Chef. Engagement of non-English natural-language structure has more often taken the form of vocabulary substitution than grammar engagement, but a small lineage of inflection-driven precedents does exist: Perligata (Latin, 2000), Wenyan (Classical Chinese, 2019), Tampio (Finnish, ~2017–present), and the unimplemented Espro (Esperanto, 2015). None of the four is a Romance language; none engages the specific feature set — *ser* / *estar*, mood, aspect, clitic ordering, diminutive morphology — that contemporary Spanish makes available. This paper proposes Inflexión, a language that joins the lineage rather than opens it. Inflexión uses the grammatical features of Rioplatense Argentine Spanish (number, verb mood, verbal aspect, the *ser* / *estar* split, clitic pronoun ordering, diminutive and augmentative morphology) as semantic primitives in their own right, rather than as theme laid over an English-derived execution model. The paper presents the design move, the dialect choice and its rationale, the grammatical-semantic mappings, a small set of worked examples, the Turing-completeness argument, and a hypothesis about why a programming language whose surface syntax mirrors a more grammatically dense natural language may be a denser substrate for large-language-model prompting and code generation than English-keyworded equivalents. The hypothesis is stated as such; the language is defended on its other merits independently of whether the hypothesis is later validated. This is the first installment of an ongoing project. Operational semantics — the formal description of how Inflexión programs execute — is deferred to a later installment, so that the design contribution can be evaluated on its own terms before mechanism is layered on top.
+bibliography: ../../Babel/references.bib
+csl: ../../Babel/csl/chicago-author-date.csl
+link-citations: true
+---
+
+> *Draft 1, 2026-05-09. White paper, second installment of the Babel / Inflexión series, companion to `04-whitepaper-babel.md`. Style: Chicago author-date via pandoc + BibTeX. Voice: essayistic for curious minds. Citations are BibTeX keys (`[@key]`) and resolve through the shared `references.bib` in the Babel repository.*
+
+> *The language is referred to throughout as `Inflexión`. The name is to be chosen before publication, deliberately, after the design has settled enough to make a good name choosable.*
+
+## 1. The design move
+
+Programming languages with a natural-language flavour — Shakespeare's plays as syntax, Chef's recipes as syntax, ArnoldC's action-movie quotes, LOLCODE, Inform 7's English-like rule statements [@nelson_inform7] — are by now an established sub-genre of the esoteric-programming-language wiki [@esolangs_wiki]. Almost all of them are English. The handful that engage non-English material — Mierda [@wiki_mierda] and Chespirito [@wiki_chespirito] in Spanish, La Weá [@wiki_lawea] in Chilean Spanish, BIRL in Brazilian Portuguese-flavoured catchphrases, Monicelli in mock-Italian — engage that material almost exclusively at the level of vocabulary. They are reskins of an existing execution model, with culturally specific keywords replacing the canonical ones. The execution model itself remains a Brainfuck tape, a stack machine, or some other widely re-implemented base.
+
+> **[Diagram pending — render service down]** *Lineage timeline of inflection-driven non-English natural-language esolangs: Perligata (2000) → Espro (2015, idea only) → Tampio (~2017) → Wenyan (2019) → Inflexión (2026). Mermaid source at [`/data/rci/Babel/diagrams/lineage-timeline.mmd`](../../Babel/diagrams/lineage-timeline.mmd). Will render at `https://diagrams.roderickc.com/api/v1/apps/www/diagrams/inflexion-lineage.svg` once the render service is back.*
+
+A small but real lineage of esoteric languages does something structurally different. *Lingua::Romana::Perligata* [@conway_perligata_2000] — Damian Conway's Latin-grammar Perl module from the year 2000 — is the canonical inflection-as-semantics precedent. In Perligata, declension determines variable type (a scalar is a neuter-singular second-declension noun; an array is its plural; a hash takes a different declension entirely), verb conjugation determines call context, and free word order is permitted exactly because the inflectional system does the work word order does in English. *Wenyan* [@huang_wenyan] — Lingdong Huang's 2019 Classical Chinese language — uses Classical Chinese particles (者, 也, 而) in their literary positions as syntactic structure, with a real parser handling real grammatical constructions rather than a keyword scanner replacing tokens. *Tampio* [@sarkkinen_tampio] — Iiro Sarkkinen's Finnish-grammar language, in active development since around 2017 — uses the libvoikko Finnish morphological analyzer to engage eight noun cases, verb conjugation, postpositions, comparatives, and plural inflection as semantic structure. And *Espro* [@espro_2015] — an unimplemented 2015 idea page for an Esperanto-grammar language — sketches accusative-as-field-access and infinitive-as-method conventions without producing a working compiler.
+
+The four together establish a small genre. Latin in Perligata is dead and inflectionally maximal. Classical Chinese in Wenyan is literary and not a living vernacular. Finnish in Tampio is living and agglutinative. Esperanto in Espro is constructed and idea-only. None of the four is a Romance language, and none engages the specific feature set — the *ser* / *estar* copular split, the indicative / subjunctive / imperative mood three-way, the perfective / imperfective aspect contrast, the fixed-order Spanish clitic system, and productive diminutive / augmentative morphology — that contemporary Spanish makes available.
+
+This paper proposes a language that joins the lineage rather than opens it. *Inflexión* — referred to throughout under that name (resolved 2026-05-09; see §11) — uses the grammatical features of Rioplatense Argentine Spanish (number, verb mood, verbal aspect, the *ser* / *estar* split between two copular verbs, clitic pronoun ordering, diminutive and augmentative morphology) as the source of programming semantics. The features in question are not merely thematic surface; they carry the language's semantic load. A program in Inflexión that reads as Spanish prose to a Spanish-speaking reader is, simultaneously, a program in which number, mood, aspect, and copular choice are determining what the program *does*.
+
+What Inflexión adds to the existing lineage, to the best of our knowledge, is two things. First, it is the first inflection-driven natural-language esolang to use a living Romance language. Second, it is the first to make the *ser* / *estar* split, the subjunctive / indicative / imperative mood distinction, the perfective / imperfective aspect contrast, the Spanish clitic-ordering system, and productive diminutive / augmentative morphology jointly load-bearing as semantic primitives. Each is documented in standard Spanish reference grammars; none has been carried into programming-language design before, in this combination, that we have found. The contribution is also, secondarily, a hypothesis about the relationship between grammatical density and large-language-model prompting density, deferred to §5. The two contributions are independent: the language is interesting on its design merits whether or not the hypothesis bears empirical weight.
+
+## 2. Why Spanish, and which Spanish
+
+Spanish is one of the most grammatically dense of the major Romance languages, and the Romance languages themselves sit between the heavily analytic (English, Mandarin) and the heavily agglutinative (Finnish, Turkish, Quechua, Hungarian) on the typological spectrum of how much grammatical information a single word can carry. A conjugated Spanish verb encodes person, number, tense, mood, and aspect in a single morphological complex. *Comeríamos* is ten letters of Spanish that take two to three words of English to express (*we would eat*) and that carry information English does not mark at all (the conditional mood and a particular aspect of the unrealised action). *Hablándomelo* — the present participle of *hablar* with two enclitic pronouns — encodes the action, its progressive aspect, and the indirect-and-direct objects of that action in a single space-free token of twelve letters. These are extreme examples; the typical Spanish verb form in everyday speech still encodes more grammatical information per token than the typical English equivalent.
+
+The relevant features of Spanish for the present design choice are:
+
+- **Number** marked on nouns, articles, adjectives, and verbs, with strict agreement. Singular and plural are morphologically distinct on essentially every word that can take inflection.
+- **Verb conjugation** by person, number, tense, mood, and aspect. Approximately fourteen tenses across three moods.
+- **A clean perfective / imperfective aspect distinction** in the past tense (*comió* / *comía*), which English collapses into *ate*.
+- **Robust subjunctive mood**, used for hypothetical, desired, doubted, or unrealised actions. Productive in living speech in a way it largely is not in modern English.
+- **The *ser* / *estar* split**, two copulas distinguishing essential or defining properties (*es*) from transient or located states (*está*).
+- **Clitic pronoun ordering** in fixed sequence: object pronouns (*me, te, se, lo, la, le, nos, os, les*) attach to the verb in a grammaticalised order when multiple clitics co-occur.
+- **Productive diminutive and augmentative morphology**: *-ito*, *-ita*, *-illo*, *-illa*, *-ón*, *-azo*, *-ote*. Carries meaning beyond literal size — affection, contempt, intensity, casualness — and applies to nouns, adjectives, and a smaller range of other parts of speech.
+
+These six features are the design surface this paper works from. Each becomes the basis for one of the grammatical-semantic mappings in §3.
+
+The choice of *which* Spanish matters. There is no neutral Spanish in the way there is a relatively neutral standard written English. The principal regional varieties — peninsular (Spain), Mexican, Rioplatense (Argentina, Uruguay, parts of Paraguay), Andean, Caribbean, Chilean — differ in pronoun systems, verb forms, lexicon, and intonation. La Weá's choice to be specifically Chilean rather than generically Spanish-speaking [@wiki_lawea] is the right precedent at the level of strategy: a dialect-specific design decision is more honest than a default-to-Castilian one, and it allows the language to inherit features that exist in some dialects but not in others.
+
+Inflexión is Rioplatense. The reasons are four. First, the author is in active re-acquisition of Spanish through Rioplatense immersion in Argentina, after a long English-professional period and after originally growing up speaking Venezuelan Spanish — the dialect chosen is the dialect being heard, used, and consciously absorbed daily, which makes it the live register the language design has access to. (Native fluency in Venezuelan Spanish underneath, conscious re-acquisition of Rioplatense on top, is precisely the position from which the morphological mechanics become visible — see the predecessor article *Listening to Spanish Again* for that observation in essay form.) Second, Rioplatense uses *vos* in the second-person singular instead of *tú*, with distinctive verb forms (*vos comés*, *vos hacés*, *vos tenés*) that are absent from peninsular and Mexican Spanish; the language can use these as syntactic markers without competing with peninsular norms. Third, Rioplatense has substantial Italian-derived intonation and lunfardo lexicon, which has produced a distinctive register that resists easy assimilation to a "neutral" Spanish; being a *named* dialect rather than a defaulted one is part of being honest about what the language is. Fourth, the Argentine linguistic ecology described in the inspiration document — a country with unusually preserved pockets of regional and immigrant language — gives the dialect choice a specific cultural anchor that a non-located choice would lack.
+
+Naming the dialect choice is itself a design move. A reader who picks up Inflexión knows from the first page what register they are reading in, what verb endings to expect, and what cultural specificity the language is assuming. The choice rules in some readers and rules out others, deliberately and openly.
+
+## 3. The grammatical-semantic mappings
+
+> **[Diagram pending — render service down]** *Two-column flow showing each Spanish grammatical feature on the left (Number, Mood, Aspect, Ser/Estar, Clitics, Diminutive/Augmentative) and its corresponding programming semantic on the right. Mermaid source at [`/data/rci/Babel/diagrams/inflexion-six-mappings.mmd`](../../Babel/diagrams/inflexion-six-mappings.mmd). Will render at `https://diagrams.roderickc.com/api/v1/apps/www/diagrams/inflexion-mappings.svg` once the render service is back.*
+
+Six grammatical features of Rioplatense Spanish, each mapped to a programming-semantic role. The mappings are deliberate, and where multiple plausible mappings exist for a feature, the choice made here is justified rather than asserted.
+
+### 3.1 Number → scalar vs collection
+
+Spanish marks number — singular versus plural — on nouns, articles, adjectives, and verbs, and enforces agreement across all of them. *El número es cinco* (singular noun, singular article, singular verb) versus *los números son cinco* (plural noun, plural article, plural verb). Disagreement is ungrammatical: *los número* and *el números* are not Spanish.
+
+In Inflexión, number maps to the scalar-versus-collection distinction at the value level. **Singular nouns refer to scalar values; plural nouns refer to collections** — lists, vectors, sequences. Agreement at every syntactic juncture between article, noun, adjective, and verb is the language's way of making that distinction structurally enforceable.
+
+A binding *el contador es 0* introduces a scalar *contador*. A binding *los contadores son [0, 0, 0, 0]* introduces a four-element collection. Operations on collections broadcast element-wise: *los contadores más uno* increments each element of the collection by one; *los números por dos* doubles each. Operations between a scalar and a collection broadcast the scalar across the collection: *el factor por los valores* multiplies each value by the single factor. The semantics is APL-influenced and should feel familiar to any reader who has used NumPy, MATLAB, or J.
+
+Where Spanish allows ambiguity in everyday speech — *los valores son cinco* could mean "each is 5" or "the collection is the literal 5" — Inflexión fixes the semantics. A scalar literal on the right of a plural binding broadcasts: *los valores son 5* assigns the scalar 5 to each element of *valores*. A collection literal requires explicit collection syntax: *los valores son [5, 5, 5]* assigns the literal three-element collection. The disambiguation is a small concession the language asks of the programmer in exchange for syntactic regularity.
+
+The mapping inherits a discipline that Spanish speakers already use. A programmer fluent in Spanish does not have to learn that singular and plural differ; the mapping in Inflexión extends an already-cognitively-available distinction into the computational domain. The language pays no surface-form cost — number marking is part of natural Spanish grammar — and gains a structural invariant that operates as a compact type system without requiring explicit type declarations.
+
+The pedagogical effect is that the scalar-versus-collection distinction is morphologically visible at every line of code. A reader of Inflexión can see, from the agreement marking on the article and verb, whether they are looking at a scalar or a collection without consulting type signatures or naming conventions. The distinction is *grammatical* in the original sense of the word: built into the morphology, rather than imposed on it from outside.
+
+### 3.2 Mood → evaluation strategy
+
+Spanish marks three principal moods on its verbs. Each maps to a different evaluation strategy in Inflexión.
+
+**Indicative mood** denotes asserted reality. In Inflexión, statements in indicative mood are evaluated immediately and unconditionally when control reaches them. *El contador está en 0* binds *contador* to 0 the moment the line executes. This is the default mood and the closest to how mainstream programming languages handle assignment and expression evaluation. (The choice of *estar* rather than *ser* is a separate semantic decision documented in §3.4 — *estar* makes the binding mutable, which a counter typically wants to be.)
+
+**Subjunctive mood** denotes hypothetical, desired, doubted, or unrealised reality. In Inflexión, statements in subjunctive mood are *deferred*: they are evaluated only when their triggering condition is realised, and their resulting state is bound to the realisation of that condition. *Cuando el contador esté en 10* establishes a deferred binding that will fire when *contador* reaches 10; the binding is itself a first-class value that can be passed, composed, and inspected before it fires. The subjunctive becomes the language's mechanism for expressing futures, promises, conditions, and reactive bindings — all under one syntactic banner.
+
+**Imperative mood** denotes commands. In Inflexión, statements in imperative mood perform side effects: I/O, mutation of mutable bindings, communication with the environment. The imperative is segregated from the indicative, in the sense that pure expression evaluation does not perform effects; effects require the imperative. *Decí "hola"* (vos imperative of *decir*) writes "hola" to standard output as a side effect; the same word as an indicative third-person form (*dice "hola"*) would be an expression that *describes* the saying of "hola" without actually performing it.
+
+This three-way mood split unifies, under a single grammatical category natural to Spanish, what mainstream languages handle through three distinct mechanisms: synchronous evaluation, deferred / lazy / reactive constructs, and effect systems. A reader of Inflexión can see at a glance, from the verb form alone, whether a line is *doing* something now, *promising* something for later, or *commanding* the environment.
+
+### 3.3 Aspect → eager vs lazy / completed vs ongoing
+
+Spanish marks two aspects in the past tense: perfective (*preterite*: completed action, viewed as a whole) and imperfective (*imperfect*: ongoing or habitual action, viewed in its duration). English collapses both into the simple past *ate*; Spanish keeps them apart morphologically, *comió* versus *comía*.
+
+In Inflexión, aspect is the eager-versus-lazy distinction at the level of individual function calls. A verb in perfective aspect (*calculó la suma*) requests immediate, eager evaluation: the call runs to completion and returns its value. A verb in imperfective aspect (*calculaba la suma*) requests lazy or streaming evaluation: the call returns a thunk, a generator, or a stream of partial results, depending on the operation, and the consumer drives it forward as needed.
+
+The same operation can be invoked under either aspect, and the choice is made syntactically by the verb form rather than by separate library APIs. *Sumó los números* sums them now; *sumaba los números* gives back a stream of running sums. The reader of the code sees the choice in the verb morphology itself, not in surrounding context.
+
+This mapping has the pleasing property that Spanish speakers already use the perfective / imperfective distinction to convey *exactly* this sense of "complete" versus "ongoing" in everyday speech. The programming-language semantics inherits a distinction that is already cognitively available to its readers; Inflexión does not have to teach the distinction, only to extend it into the computational domain.
+
+### 3.4 Ser vs estar → immutable vs mutable binding
+
+Spanish has two copulas where English has one. *Ser* attributes essential or defining properties — what something *is*, by nature, persistently. *Estar* attributes transient or located states — where something *is*, how it *happens to be* right now, what state it is currently in. *La nieve es blanca* (snow is white, by nature) versus *la nieve está sucia* (the snow is dirty, in its current state).
+
+In Inflexión, this maps with no friction at all to the immutable / mutable binding distinction.
+
+A binding made with *ser* — *el resultado es 42* — is immutable. The name *resultado* refers to 42 essentially and forever in this scope; subsequent lines cannot change what *resultado* means.
+
+A binding made with *estar* — *el contador está en 0* — is mutable. The name *contador* refers to a cell whose current value is 0, but whose value can be subsequently changed. Mutation requires the imperative (*hacé que el contador esté en 1*); reads can use the indicative (*¿el contador está en 1?* as a query — note the Spanish opening question mark).
+
+The pedagogical effect, again, is that immutability is *visible* at the binding site through the choice of copula. There is no syntactic hint required — *let* versus *const*, *var* versus *val* — beyond the natural-language grammar the language already uses. A Spanish speaker reading Inflexión knows immediately, from the verb, whether they are looking at a defining bind or a current-state bind. This is the cleanest of the six mappings, and the one most likely to read naturally to a Spanish-speaking programmer with no prior exposure to Inflexión.
+
+### 3.5 Clitic ordering → argument shuffling
+
+When multiple object pronouns attach to a verb in Spanish, they appear in a fixed grammatical order: *se* before second-person before first-person before third-person, and within each person indirect before direct. *Dámelo* ("give-it-to-me") combines the imperative *dá* (vos form of *dar*) with the indirect-object clitic *me* and the direct-object clitic *lo* in their required order. *Dáselo* ("give-it-to-him/her/them") is the parallel imperative, substituting *se* for *me*. The order is grammaticalised; *lome dá* is not Spanish.
+
+In Inflexión, the clitic stack on a verb specifies the routing of arguments through a function call. The verb names the operation; the clitics, in their fixed Spanish order, name the arguments in their corresponding positions. Different clitic combinations call different specialisations of the same function, partially apply, or curry. This gives the language a syntactic combinator system that is already cognitively familiar to Spanish speakers as the way object pronouns work in everyday speech. Clitics encode **person** (first, second, third) and **role** (direct object, indirect object, reflexive); they do not carry semantic load beyond those two dimensions.
+
+The fixed order matters: it means that the clitic stack is a *positional* argument-routing system, not a keyword-argument system, and that the language inherits a particular discipline of how arguments compose. *Dámelo* and *dáselo* are both two-argument calls of *dar*, but with different recipients; the difference is morphologically marked through the *me* vs *se* substitution. A function written to accept clitic-routed arguments must accept a fixed sequence of slots, in the Spanish order, and the call site indicates which slots are filled by which values through the clitic morphology.
+
+This is the most syntactically novel of the six mappings and the one a curious-minds reader is most likely to find unfamiliar. A worked example in §4 exercises it.
+
+### 3.6 Diminutive and augmentative → numeric and computational scaling
+
+Spanish diminutive suffixes (*-ito*, *-ita*, *-illo*, *-illa*) and augmentative suffixes (*-ón*, *-ona*, *-azo*, *-ote*) are productive and apply to nouns, adjectives, and a smaller range of other parts of speech. *Casa* / *casita* / *casón* (house / little house / big house). *Rápido* / *rapidito* (fast / quickly, the diminutive carrying a casual, slightly affectionate register). The suffixes carry meaning beyond literal size: affection, intensity, casualness, contempt. (A separate intensifying construction — the absolute superlative *-ísimo*, as in *rapidísimo* "extremely fast" — is morphologically distinct and not part of this mapping.)
+
+In Inflexión, diminutive and augmentative morphology applies to numeric values and to function invocations as a *scaling* operator.
+
+On a numeric value, *cinco* is 5; Inflexión applies diminutive and augmentative morphology to the numeral itself — *cinquito* (5 halved, 2.5), *cinquillo* (5 quartered), *cincón* (5 doubled), *cincazo* (5 quadrupled). These are coined extensions: standard Spanish does not normally apply diminutives to numerals, and the resulting forms are Inflexión-internal rather than dictionary words. Native speakers will recognise the suffixes immediately even where the resulting token is novel. (One collision worth flagging: *cinquillo* is a real Spanish word in card-game and music-notation contexts, where it names *a group of five* — Inflexión repurposes it for *5 quartered* and accepts the homonym rather than avoiding it.) The scaling factors themselves are conventional and chosen by the language, not derived from the suffix's natural-language meaning, which is too vague to ground a numeric semantics on. Programs that need precise scaling can use explicit multiplication; the diminutive / augmentative is a *cheap* way to express common scaling moves.
+
+On a function invocation, the diminutive marks a *cheap* or *low-cost* variant of the operation, and the augmentative marks an *expensive* or *thorough* variant. *Buscar* (to search) is the default; *busquito* is a quick approximate search; *buscazo* is a thorough exhaustive search. As with the numeric case, *busquito* and *buscazo* are coinages — Spanish applies diminutives to verbs occasionally in informal speech (*cantarcito*, a little singing) but does not have a standard convention for applying them to denote computational cost. The implementation can choose what these labels mean concretely; the language commits to the discipline that diminutive / augmentative mark cost-and-thoroughness, and the implementer commits to choosing labels honestly.
+
+This is the most playful of the six mappings, in the sense that the *cultural* register of diminutive Spanish — the affectionate, casual, in-group warmth — bleeds into the code's character. Programs in Inflexión that lean on diminutive scaling read as *friendlier* than equivalent programs in a language without the construction. Whether this is a virtue or a vice is a question for users to settle through use.
+
+### 3.7 What these mappings don't yet cover
+
+The six mappings above are first-installment commitments, not finalities. Working the design through six worked sub-sections has surfaced specific places where the mappings as currently sketched are too coarse — places a future installment will refine. Three are worth naming.
+
+**Aspect beyond the past tense.** §3.3 maps the perfective / imperfective aspect distinction to eager / lazy evaluation, leaning on the clean morphological contrast Spanish marks in the simple past (*comió* versus *comía*). Spanish also marks aspect in compound and periphrastic constructions (*ha comido*, *está comiendo*, *acaba de comer*) and, more subtly, in present and future tenses. The current mapping is silent on those. A future revision should resolve aspect into sub-features that cover the full Spanish aspectual system, not only its past-tense expression.
+
+**Clitic placement, not just clitic order.** §3.5 maps clitic order to argument routing, but Spanish clitics can be proclitic (before the verb: *me lo dio*) or enclitic (after the verb, often attached to non-finite forms: *dármelo*, *dándomelo*, *dámelo*). The placement carries syntactic meaning that the current mapping flattens. A future revision should address proclitic-versus-enclitic placement as a separate semantic dimension.
+
+**Diminutive and augmentative scope.** §3.6 maps diminutive and augmentative morphology to numeric and function-cost scaling, with examples drawn from nouns and verbs. Spanish diminutives are productive on adjectives, adverbs, and a smaller range of other word classes; the current mapping is silent on what diminutive marking does on those. A future revision should either extend the scaling semantics to those word classes or commit explicitly to the narrower scope.
+
+These three limitations are not failures of the mapping framework. They are evidence that the framework is precise enough to surface its own gaps — the same kind of methodological output that working through the parameter schema produces in the companion paper [@rodriguez_babel_2026]. The mappings will improve through use; this installment commits only to where the design currently stands.
+
+### 3.8 Turing completeness through iteration and self-reference
+
+The six mappings above give Inflexión conditional branching (subjunctive mood, §3.2), unbounded memory (plural collections, §3.1), mutation (*estar* bindings combined with imperative mood, §3.4 and §3.2), and function calls (clitic-routed argument routing, §3.5). These are necessary but not sufficient for Turing completeness. Two further constructions, both natural in Spanish and both built from the existing grammatical mappings rather than added on top of them, bring Inflexión to Turing completeness.
+
+**Iteration via *mientras*.** The construction *mientras X, hacer Y* — "while X, do Y" — is everyday Spanish. In Inflexión it desugars to a conditional (subjunctive) plus a self-firing imperative: as long as the subjunctive condition X holds, repeatedly fire the imperative Y. The construction does not require a new grammatical mapping; it is a syntactic shape built from the existing mood primitives. Other Spanish iteration constructions follow the same pattern with different conditions: *hasta que* (until), *para cada* (for each), *siempre que* (whenever).
+
+**Recursion via self-referential *ser* bindings.** A function defined with *ser* (immutable binding, §3.4) can refer to itself within its own body. *La factorial es la función que toma n y, si n es 0, es 1, y si no, es n por la factorial(n − 1)* defines the factorial recursively without requiring any new feature beyond what §3.4 already provides — the *ser* binding is in scope for the body of the function it binds, and the function may refer to itself by name. This is the same mechanism by which most functional programming languages get recursion.
+
+With these two extensions, Inflexión is Turing-complete. The standard esolang-tradition demonstration would be to implement a Brainfuck interpreter in Inflexión, or to simulate a Turing machine directly; either is straightforward given iteration, recursion, and the unbounded plural collections from §3.1. A formal proof and a worked demonstration are deferred to the operational-semantics installment (§9), which has the machinery to make the argument rigorous. The present installment commits to the result and to the two syntactic constructions that produce it.
+
+The choice to be Turing-complete is, in this case, neither an active design goal nor an accident. It falls out of the existing grammatical mappings the moment two natural Spanish constructions — *mientras* and self-referential definition — are accepted as part of the language. Inflexión's Turing completeness is, in that sense, a consequence of being honest about what Spanish grammar already provides, rather than a feature added on top.
+
+## 4. Worked examples
+
+Three small programs in Inflexión, each exercising a subset of the mappings. Glossing in English follows each example; readers without Spanish should be able to follow the structure through the gloss, even if some idiomatic flavour is lost.
+
+### Example 1: "Hello, world" with ser and the imperative
+
+```
+El saludo es "Hola, mundo".
+Decilo.
+```
+
+**Gloss:** *El saludo* is a singular noun ("the greeting"); *es* is the third-person singular present of *ser*. The first line binds *saludo* to the string "Hola, mundo" with an immutable (*ser*) binding. The second line is the vos imperative of *decir* ("to say"), with the third-person singular direct-object clitic *lo* attached, meaning "say it". Output: `Hola, mundo`.
+
+The example exercises **number** (singular throughout — scalar binding, scalar verb, scalar clitic), the *ser* / *estar* split (immutable binding via *ser*), and the indicative / imperative mood split (the first line describes; the second commands).
+
+### Example 2: A subjunctive condition with eager and lazy aspects
+
+```
+El contador está en 0.
+Cuando el contador esté en 10, decí "listo".
+Calculó las potencias del contador.
+Calculaba las potencias del contador.
+```
+
+**Gloss:** Line 1: an *estar* binding — *contador* is mutable, currently 0. Line 2: a subjunctive deferred binding — when *contador* reaches 10 (subjunctive *esté*), the imperative *decí "listo"* fires. The subjunctive is the syntactic carrier of the deferral. Line 3: a perfective verb form *calculó* — the verb's morphology *alone* signals eager evaluation; the powers of *contador* are computed in full and bound. Line 4: an imperfective verb form *calculaba* — same operation, same arguments, but the imperfective morphology requests lazy evaluation; the powers are returned as a stream. No prepositional annotation is needed; the verb form *is* the request.
+
+The example exercises mood (indicative description, subjunctive deferral, imperative effect) and aspect (perfective eager versus imperfective lazy) on the same underlying operation. The aspect distinction is Inflexión's most morphology-trusting design move: lines 3 and 4 differ only in the verb form, and the language commits to letting that one-letter difference (*-ó* vs *-aba*) carry the entire eager-vs-lazy semantic load.
+
+### Example 3: Clitic argument shuffling
+
+```
+La función transferir, que toma una cuenta_origen, una cuenta_destino y un monto, es ...
+Transferíselo.
+```
+
+**Gloss:** The first line declares a function *transferir* (to transfer). The relative clause *que toma una cuenta_origen, una cuenta_destino y un monto* ("which takes a source account, a destination account, and an amount") introduces the three named arguments using the natural Spanish construction for describing a function's arguments — the same syntactic shape a Spanish-speaking writer would use to define any function in prose. The body of the function follows *es*. *Transferíselo* is the vos imperative of *transferir* with two clitics attached, in the fixed Spanish order *se-lo*: *se* is the third-person indirect-object clitic ("to her/him/them"); *lo* is the third-person direct-object clitic ("it"). The argument routing is positional: *lo* maps to the direct-object slot of *transferir* (the *monto*, the amount); *se* maps to the indirect-object slot (the *cuenta_destino*, the destination); the remaining argument (*cuenta_origen*) is bound from context.
+
+The example exercises **clitic ordering** (the fixed Spanish sequence determines which argument fills which slot, by clitic position alone) and the imperative mood (the call performs an effect).
+
+A reader unfamiliar with Spanish clitic morphology will, justifiably, find Example 3 the hardest of the three. This is a feature rather than a defect: the example exercises a syntactic system that Spanish speakers learn in childhood and that English speakers have no native equivalent for. The language is harder for English speakers in exactly the place where it offers the most non-trivial novelty.
+
+### Example 4: Number, broadcast, scalar fold, and a diminutive
+
+```
+Los precios son [100, 200, 300, 400].
+El descuento es 0.10.
+Los precios_finales son los precios menos el descuento por los precios.
+La suma es sumar los precios_finales.
+Decí la suma.
+Decí la sumita.
+```
+
+**Gloss:** Line 1 binds the plural *precios* to a four-element collection. Line 2 binds the singular *descuento* to a scalar. Line 3 computes a per-element discounted price: the scalar *descuento* broadcasts across the plural *precios* under multiplication; the resulting collection is then subtracted element-wise from *precios* itself. The article and verb agree in plural form throughout (*los precios_finales son*), making the collection-ness of the result morphologically visible. Line 4 folds the collection back into a scalar with *sumar*, and *la suma* (singular) holds the result. Line 5 outputs the full sum. Line 6 demonstrates the diminutive mapping from §3.6: *sumita* is the morphological diminutive of *suma*, derived automatically by Inflexión's morphology, and evaluates to half the value of *suma*. No explicit binding is required; the diminutive form is in scope wherever its base form is.
+
+The example exercises **number** (the plural / singular distinction at every binding and operation), the *ser* binding (immutable), the implicit broadcast semantics of mixed scalar–collection operations, the imperative output, and the **diminutive scaling** from §3.6. The cultural register of *-ito* — affectionate, casual, reductive — bleeds into the operational semantics: *sumita* doesn't just halve numerically; it gestures at "a smaller version of the sum, casually scaled down." This is the playful character §3.6 names; programs in Inflexión that lean on diminutive scaling read friendlier than equivalent programs without the construction.
+
+## 5. The LLM-prompting-density hypothesis
+
+A separate claim, presented as a hypothesis. The claim is that **a programming language whose surface syntax mirrors a more grammatically dense natural language is a denser substrate for large-language-model prompting and code generation than English-keyworded equivalents**.
+
+The argument has four steps.
+
+First, linguistic typology has long known that languages vary substantially in how much grammatical information a single word can carry. Agglutinative languages (Finnish, Turkish, Quechua, Hungarian) pack many morphemes into a single surface form, each carrying syntactic or semantic load. Analytic languages (English, modern Mandarin) distribute the same information across multiple words. Spanish sits between the two — more synthetic than English, less so than the heavily agglutinative — but its mood / aspect / clitic systems still pack more grammatical information per surface form than English does. *Hablándomelo* (speaking-to-me-it) is twelve letters of Spanish that take four English words (*speaking it to me*) to express, and that carry information about progressive aspect that English would mark only through the helping verb chain.
+
+Second, code is read by large language models as input. The input is tokenised, embedded, and used to generate downstream output (further code, explanations, completions). All else being equal, a denser surface form — more semantic content per token — gives the model more signal per unit of input.
+
+Third, ambiguity in code reduces signal. An English-keyworded function name like `process_data` carries less information than a name that already encodes the function's argument number, mood (asserted versus hypothetical), and aspect (one-shot versus ongoing). A reader — human or model — has to recover this information from context, naming convention, surrounding type signatures, or guesswork. A function name in Inflexión that already morphologically encodes its arity, mood, and aspect is, by construction, less ambiguous.
+
+Fourth, therefore: code in a programming language whose surface syntax forces grammatical density should be a cleaner substrate for LLM-driven code generation than English-keyworded equivalents.
+
+The argument has a known soft spot at Step 3, worth naming explicitly. Modern language models do not tokenize input by morpheme. They use byte-pair encoding (BPE) or a related subword scheme that learns its tokens from training-data frequency, and a Spanish verb like *hablándomelo* may be split into pieces — *habl* / *ándo* / *me* / *lo*, or some other partition — that cut across rather than respect the grammatical structure. Recent work on tokenization across morphological typologies makes this concern sharper: synthetic and agglutinative languages tokenize *less* efficiently under standard BPE than analytic languages do, fragmenting into more subword tokens [@morphbpe_2025]. For Inflexión specifically, this means that without a custom tokenizer trained on the language's surface forms, BPE will likely partition Spanish morphology in ways that do not preserve the grammatical density the design intends to expose. The hypothesis as drafted in Step 3 assumes morphological density translates to semantic signal at the token level, and that assumption may not survive contact with how LLMs actually process input.
+
+The hypothesis can be restated at the level of the *whole prompt* rather than the per-token level. A prompt written in Inflexión, even after BPE-tokenization, packs more grammatical information into its overall length than the English-keyworded equivalent — because the underlying surface form is shorter and denser. Whether this prompt-level density translates to better downstream generation is exactly the question the deferred empirical study is designed to answer. Reformulating at the prompt level keeps the hypothesis coherent without depending on tokenizer-internal details the language designer does not control.
+
+This is a plausible chain of reasoning. It is not a finding. To test it would require a controlled empirical study: write the same algorithms in Inflexión and in an English-keyworded equivalent of comparable design quality; evaluate downstream LLM code-generation accuracy on completion tasks involving each; control for prompt length, token count, and model. Such a study is feasible but requires Inflexión to exist as a working language with a sufficient program corpus to draw test cases from. Both prerequisites are pending.
+
+The literature carries genuine headwinds the hypothesis must face honestly. Three are worth naming. First, recent empirical work directly tests an adjacent claim — *"Chinese is more efficient than English in vibe coding"* — and finds it does not hold once tokenizer effects are controlled [@mythbuster_chinese_2026]. The result transfers in spirit to any "denser language → cleaner LLM substrate" claim. Second, esolang benchmarks show that frontier models drop from approximately ninety percent pass-rate on Python to under five percent on esoteric languages [@esolang_bench_2026; @esolangs_seriously_2025] — a data-scarcity headwind any new esolang faces, regardless of how elegant its surface design. Third, a long-standing finding from linguistic typology — that total information rate across natural languages is roughly constant, with morphologically denser languages compensating through slower delivery [@coupe_information_rate_2019] — undercuts a naïve reading where Spanish density alone implies richer signal.
+
+The closest existing empirical work is *HumanEval-XL* [@peng_humaneval_xl_2024], which compares LLM code-generation accuracy across twenty-three natural-language *prompts* paired with twelve fixed (English-keyworded) programming languages, and *CodeMixBench* [@akkasi_codemixbench_2025], which examines code-mixed Hinglish, Spanish-English, and Chinese-Pinyin–English prompts. Both vary the natural language *of the prompt*; neither varies the *surface syntax of the programming language itself*. The chain-of-thought prompting literature [@wei_chain_of_thought_2022] and related prompt-engineering work focus on the structure of prompts and on the examples provided, not on the intrinsic grammatical density of the natural language used. To the best of our knowledge, no prior empirical study has varied the morphological density of a programming language's *surface syntax* and measured LLM code-generation accuracy. The specific hypothesis advanced here is therefore novel — surface syntax, not prompt language — but should be read against the contrary results above and the data-scarcity headwind any new esolang faces.
+
+The hypothesis is offered as upside, not foundation. If it bears out empirically, the language's contribution doubles. If it does not, the language's other contributions still hold — the design-space occupation, the pedagogical value, the engagement with cultural and linguistic specificity, the interest of the language as an esoteric artefact in its own right. Section 6 articulates these other merits explicitly so that the language can be evaluated on them independently. The honest reading: this hypothesis is fighting non-trivial headwinds, and an empirical study that found it bore out would be a meaningful result; an empirical study that found it did not bear out would also be a meaningful result, and the language stands either way.
+
+## 6. Defending the language on its other merits
+
+Inflexión is worth making whether or not the LLM-prompting hypothesis holds. Three defences.
+
+**Design-space occupation.** The lane of *Romance-language grammar as programming-semantic substrate* is, as far as we have been able to determine, empty on the esolangs.org wiki and in the academic and industrial literature. The broader lane of *non-English grammar as programming-semantic substrate* is occupied by a small lineage discussed in §1 — Perligata for Latin, Wenyan for Classical Chinese, Tampio for Finnish, the unimplemented Espro for Esperanto — and Inflexión joins this lineage as the first Romance-language entry and the first to engage the specific Spanish feature set its design centres on. To produce a coherent, defensible language at this specific intersection is a contribution in itself, the same kind of contribution a careful new typology, a new survey paper, or a deliberate experiment in any underexplored corner of a small genre makes. The contribution is that the intersection is now *occupied*, with worked examples and a defensible design rationale, and that future authors interested in the territory have something specific to react to rather than open ground to start from.
+
+**Pedagogical value.** Inflexión is a teachable artefact for anyone interested in how natural-language grammar shapes — or could shape — programming-language semantics. A student walking through §3's six mapping subsections learns something specific about number as a scalar / collection discipline, mood as evaluation strategy, aspect as eager / lazy, copular split as immutability, clitic ordering as argument routing, and morphological scaling as cost annotation. §3.7 then walks the same student through where those mappings are currently too coarse — itself a teachable lesson about how a design framework surfaces its own gaps. Each mapping is small enough to understand on its own and connected enough to the others that the language reads as a coherent system rather than as a grab bag. The artefact is useful even to a reader who never writes a line of Inflexión; it is useful as an exhibit of *what a programming language built around different grammatical primitives could look like*.
+
+**Inherent esolang interest.** Independently of the framings above, Inflexión is interesting on the same terms that the rest of the esoteric-language wiki is interesting. It has an executable semantics, a small surface area, a deliberate constraint or strangeness, a coherent design rationale, and worked examples. It belongs in the catalogue. A reader who comes to Inflexión purely for the same reason they come to Wenyan or Shakespeare or Befunge — *because the field has produced another interesting design specimen* — will not be disappointed, regardless of what they make of the LLM hypothesis.
+
+The language stands on these three. The LLM hypothesis is the contemporary frame that may prove additionally interesting; the language does not require it.
+
+## 7. Relation to Babel
+
+Inflexión is hand-built. It is not generated by Babel [@rodriguez_babel_2026], the methodology and runtime described in the companion paper of this series.
+
+The choice to hand-build Inflexión is deliberate. Babel is a parameter-driven generator; by definition, it can produce only languages whose features can be expressed as values in its parameter schema. If Inflexión were designed *within* Babel's schema, the design would be constrained — perhaps subtly, perhaps significantly — by what the schema can currently express. The companion paper notes one limitation already: the *naturalness* axis, as currently sketched in Babel's schema, is too coarse to distinguish vocabulary substitution from lexical-grammar engagement from deep-grammar engagement. Inflexión is in the third category, where Babel's schema is currently weakest.
+
+Hand-building Inflexión first gives the project a concrete artefact against which Babel's expressiveness can later be checked. If, when Babel is implemented, its parameter schema can be extended to express Inflexión exactly — number as scalar / collection, mood as evaluation strategy, the rest — then the schema's coverage is demonstrated by working through a non-trivial case. If the schema cannot express Inflexión without contortion, that finding is itself useful: it tells the methodology paper where its parameterisation is too coarse and how the next installment should refine it.
+
+The two artefacts inform each other; they do not depend on each other. A reader who comes to Inflexión with no interest in Babel can read this paper without prerequisites. A reader interested in both will find the companion paper through the cross-references, and will see the relationship articulated in both directions.
+
+## 8. What this is not
+
+Three readings to head off.
+
+Inflexión is not a localisation. It is not an attempt to make English-keyworded programming languages available in Spanish for Spanish-speaking developers. Spanish-speaking developers already have access to every mainstream programming language; the keywords are largely English in those languages, but the surrounding ecosystem (documentation, libraries, tooling) is increasingly multilingual, and the friction is genuine but not large. Inflexión does something different. It is not addressing access; it is adding a different kind of language to the catalogue, one whose surface form is Spanish and whose semantics flow from Spanish grammar. A Spanish-speaking developer who already programs comfortably in Python or JavaScript would gain nothing from the project unless they were specifically interested in what the language is exploring.
+
+Inflexión is not a manifesto against English-keyworded programming. The interesting target of the project is grammatical *structure*, not the choice of *vocabulary*. The interesting question is what becomes *possible* in a different grammatical substrate, not what is *wrong* with the existing one. English-keyworded programming languages remain entirely fine; Inflexión is offered as an addition to the design space, not as a replacement for any existing position in it.
+
+Inflexión is not, despite the paper's title and the LLM hypothesis, primarily an LLM-prompting research project. The LLM hypothesis is the contemporary frame that may prove additionally interesting and that motivates one strand of future empirical work. The language itself is a programming-language design contribution that would be worth making if no large language model existed. The paper is structured to make the language defensible on those independent merits, in §6, so that no reader is asked to evaluate the language only through the LLM lens.
+
+## 9. What comes next
+
+This installment treats the design move, the dialect choice, the grammatical-semantic mappings, a small set of worked examples, and the LLM-prompting hypothesis. Future installments will address:
+
+**Operational semantics.** A formal description of how Inflexión programs execute — the abstract machine, the order of evaluation, the resolution of mood and aspect at runtime, the implementation of the clitic-routing mechanism, the precise scaling factors of the diminutive / augmentative system. The sequencing the project has settled on is *build first, then write*: the runtime (a Python interpreter, alongside the Babel-emitted artifacts) is the first artifact, and the operational-semantics paper is written from the captured implementation specification afterwards. This ordering produces a paper that misses less, because the act of building forces precision the prose alone elides; the rigour the formal write-up needs is supplied by working code rather than by predicting what working code would look like. Operational semantics will be the second Inflexión installment, after the runtime ships, and will include the formal Turing-completeness argument promised in §3.8 — a worked Brainfuck interpreter or Turing-machine simulator written in Inflexión, with proof-grade rigour the runtime makes available.
+
+**A working interpreter.** Once the operational semantics is settled, an implementation. Target language to be decided, but a Python or Rust implementation is the natural starting point, given the audience and the desire for portability. Inflexión source files use the extension `.infl` (resolved 2026-05-10).
+
+**A program corpus.** A small set of real programs in Inflexión, each illustrating one or more of the mappings in working form, with the same English glossing as the examples in §4. The corpus is a precondition for the empirical LLM-prompting study described next.
+
+**The LLM-prompting empirical study.** A controlled comparison of LLM downstream code-generation performance on tasks expressed in Inflexión versus in an English-keyworded equivalent. This is the work that would test the hypothesis from §5; it requires the operational semantics, the interpreter, and a sufficient program corpus. A separate paper.
+
+**Dialect comparison.** What changes if Inflexión were to be re-instantiated under Mexican, peninsular, Andean, Caribbean, or Chilean Spanish? The dialect choice was made deliberately for this installment; a future installment can examine which mappings are dialect-stable and which would shift, and what that tells us about how transferable the design move is across regional varieties of the same language.
+
+The series is the unit of work. This installment is meant to be readable on its own and to leave specific hooks for what each future installment can pick up.
+
+## 10. A closing note
+
+Spanish was born from the grammatical wreckage of Latin: a robust case system was lost; a perfective / imperfective aspect distinction was preserved and morphologised; the *ser* / *estar* split was added; clitic pronouns evolved into a fixed-order syntactic system; diminutive and augmentative morphology became productive across registers. The language that resulted is not a subset of Latin and not a subset of any other Romance language. It is a specific historical settlement of how grammar can encode meaning in a particular cultural and geographic context.
+
+Programming languages are a younger settlement of an analogous question: how can grammar encode computation in a particular cultural and technical context. The settlement that mainstream programming languages have made is overwhelmingly English-derived, with English-derived assumptions about word order, pluralisation, and the relationship between nouns and verbs. The settlement is not wrong; it is one settlement among the many that could have been made.
+
+Inflexión is an attempt at a different settlement, made deliberately, under a different language's grammatical assumptions. It does not claim that the settlement it makes is *better* than the English-derived one; it claims only that the settlement is *possible*, *coherent*, *interesting in its own right*, and *uniquely informative about what a programming language is when it is built around different primitives*. That is the contribution. Whatever the LLM-prompting hypothesis turns out to be empirically, that contribution stands.
+
+## 11. A note on the name
+
+The language was carried under a placeholder — *«»* — through the first complete draft of this paper. The deferral was deliberate: a name chosen too early would have constrained the design or signalled features the language did not yet have. The name was settled only after the six grammatical-semantic mappings and the dialect choice had stabilised.
+
+Four naming dimensions were considered. The *mechanism* dimension — Spanish nouns naming the morphological work the language does. The *substrate* dimension — Spanish nouns evoking the Rioplatense cultural and geographic context. The *spirit* dimension — Spanish nouns naming the act of inflecting speech into meaning. The *series-role* dimension — mythological or literary parallels to *Babel*. The mechanism dimension was selected because it is the only one that tells the reader, from the name alone, what makes this language different from the corpus of esoteric programming languages it joins. The others are atmospheric; this one is informative.
+
+Within the mechanism dimension, the candidates were *Flexión* (inflection), *Concordancia* (agreement), *Conjugación* (verb conjugation), and *Morfema* (morpheme). *Inflexión* was selected over the others for three reasons. First, it is more cognate with the English *inflection* and therefore more readable to readers without a Spanish background, in keeping with the curious-minds audience the series is written for. Second, it avoids a colloquial collision with *flexión* in everyday Spanish (where the word also denotes the exercise). Third, it carries two metaphorical resonances the other candidates lack: *punto de inflexión* (turning point) and the prosodic sense of voice modulation. Both resonances feel earned by the language's character rather than imposed on it.
+
+The name will travel through subsequent installments. Future installments may revisit the choice if the language's design evolves in ways that make the choice less apt.
+
+---
+
+## Authorship and contribution
+
+This is the second installment of the Babel / Inflexión series. It is authored by Ramon Rodriguez under the auspices of RCI. The series welcomes additional authors and collaborators — the dialect-comparison work in particular would benefit from co-authors whose native dialect is not Rioplatense. Correspondence to be directed through RCI publication channels.
+
+The companion paper, *Babel: A Methodology for Building Esoteric Programming Languages*, treats the methodology and parameter schema for the programmatic construction of esoteric programming languages. Inflexión is a hand-built instantiation of the design space that paper opens.
+
+## Acknowledgements
+
+Thanks to the maintainers of esolangs.org [@esolangs_wiki] for cataloguing thirty years of the field's output, including the existing Spanish-flavoured esolangs whose vocabulary engagement makes the grammatical engagement of this paper specifically distinguishable. Thanks to Damian Conway for *Lingua::Romana::Perligata* [@conway_perligata_2000], the canonical inflection-as-semantics precedent; to Lingdong Huang and the Wenyan community [@huang_wenyan]; and to Iiro Sarkkinen for *Tampio* [@sarkkinen_tampio], the existing precedent that most directly resembles what this paper attempts — together they demonstrated that non-English grammatical engagement is possible, fundable, and findable by an audience, in advance of the present project. Thanks to the linguistic-ecology of the Argentine Río de la Plata, which produced the dialect this language uses.
+
+## Open items for the next pass
+
+- *Resolved 2026-05-09* — The language's name was settled to **Inflexión** through the naming exercise documented in §11. The historical-candidate list (*Castellano*, *Conjugar*, *Borges*, *Lengua*, *Pampa*, *Vos*, *Cortázar*, *Talante*, *Temple*, *Flexión*, *Concordancia*, *Conjugación*, *Morfema*) is preserved here for reference; future readers reviewing the rationale should consult §11 first.
+- *Resolved 2026-05-09* — Chain-of-thought citation in §5 is now `[@wei_chain_of_thought_2022]`, with the real BibTeX entry in `references.bib`. The Wei et al. (2022) author list and exact arXiv version still need a careful pass before publication (CONFIRM flag in the bib entry).
+- `[TBD verify]` — The "to the best of the author's knowledge, novel" claim in §5 about prior empirical work on LLM performance versus natural-language grammatical density. Searching the literature carefully before publication.
+- *Resolved 2026-05-09* — Self-citation to the Babel paper now uses `[@rodriguez_babel_2026]` throughout (§3.7 and §7), resolving against the BibTeX entry of the same key. The entry's exact form will be finalised once the series ships.
+- `[TBD]` — Whether to include a short worked example in §4 that exercises the diminutive / augmentative scaling mapping from §3.6. Examples 1–4 now cover number, mood, aspect, *ser* / *estar*, and clitics; only diminutives are unexercised.
+- `[TBD]` — Whether the "what this is not" disambiguation in §8 should also explicitly address the relationship of Inflexión to localisation efforts in the Rust, Python, and JavaScript ecosystems (which exist as documentation-translation projects, not as language-localisation projects). Probably not in this installment; flag for a future treatment if an audience asks.
+- *Resolved 2026-05-10* — Function-definition syntax committed to the relative-clause form: *La función X, que toma una A, una B y un C, es ...* Reads as natural Spanish; `que toma` is the idiomatic way to introduce function arguments; composes naturally with all other Inflexión constructions; the language commits to a real Spanish parser anyway, so adding relative-clause handling is small marginal cost on top of clitic-stack-on-verb (§3.5).
