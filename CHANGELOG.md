@@ -1,0 +1,65 @@
+# Changelog
+
+All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
+
+## [0.0.6] — 2026-05-13
+
+### Added — Phase 5: function definitions, clitic stacks, reductions (commit `c22c8d7`)
+
+- Relative-clause function definition: `La función X, que toma <params>, es <body>.` (paper §3.4, §5 Example 3).
+- Elided-body sentinel `...` for record-of-call function shape.
+- Positional function call form: `<verb-infinitive> <arg> <arg> …`. Args parsed greedily until an arithmetic operator or non-arg-shaped token.
+- Multi-clitic vos imperative parsing (`Dámelo`, `Dáselo`, `Transferíselo`): right-to-left longest-suffix-first stripping, capped at 3 clitics. Irregular bare-stem resolution via override table (`decí`, `hacé`); regulars resolved by `-á` / `-é` / `-í` suffix rule.
+- Reduction operator: `el resultado de <op> los X` (paper §5 Example 4). Phase 5 wires `sumar`; the dispatch table is extensible.
+- Lexical scope: environment gains a `parent` pointer and a root-level `functions` registry; function calls push a child scope and bind formal params as fresh *ser* cells.
+- Phase 4 plural-binding RHS check extended to treat `FunctionCall` as collection-producing and `Reduction` as scalar-producing.
+
+### Tests
+
+- 60 passing (36 baseline + 24 new: 16 in `tests/test_funcion_descontar.py`, 8 in `tests/test_transferir.py`).
+
+### Out of scope (deferred to Phase 6+)
+
+- Diminutive / augmentative numeric scaling and diminutive function-variant invocation.
+- Aspect-marked lazy evaluation.
+- Full positional clitic-value routing (Phase 5 logs call shape rather than binding clitic argument values).
+- Nested arithmetic at the function-call arg position (parenthesisation deferred).
+
+## [0.0.5] — 2026-05-13
+
+### Added — Phase 4: number agreement + collections + broadcasting (commit `cde49d2`)
+
+- `por` multiplication; decimal literals.
+- Scalar↔collection and collection↔collection broadcasting.
+- Operator precedence: `por` > `más` / `menos`.
+- Number-agreement parse errors.
+- Runs `examples/precios.infl` → `[90.0, 180.0, 270.0, 360.0]`. 36 tests passing.
+
+## [0.0.4] — 2026-05-13
+
+### Added — Phase 3b: *Mientras* iteration + arithmetic (commit `6f02f41`)
+
+- `Mientras` loop construct; basic arithmetic (`más`, `menos`).
+- Runs `examples/contador-cuenta.infl`. 23 tests passing.
+
+## [0.0.3] — 2026-05-12
+
+### Added — Phase 3a: *Cuando* subjunctive deferred binding (commit `443d6ef`)
+
+- `Cuando` subjunctive deferred-binding shape.
+- Runs `examples/contador-listo.infl`. 15 tests passing.
+
+## [0.0.2] — 2026-05-12
+
+### Added — Phase 2: *estar* binding + imperative mutation (commit `d66f698`)
+
+- `estar` mutable-binding semantics; imperative mutation.
+- Runs `examples/contador.infl`. 8 tests passing.
+
+## [0.0.1] — 2026-05-12
+
+### Added — Phase 1: *ser* binding + 1-clitic vos imperative (commit `a13cb1f`)
+
+- `ser` immutable-binding semantics; single-clitic vos imperative.
+- spaCy `es_core_news_sm` morphology + custom-rule layer for irregulars.
+- Runs `examples/hello-mundo.infl`. 3 tests passing.

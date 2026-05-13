@@ -28,6 +28,22 @@ Inflexión is an *esoteric* programming language, not a production language. It 
 
 The language is in its design phase. The first installment lays out the grammatical-semantic mappings and the design intent. A second installment, in planning, will give the operational semantics — the abstract machine, evaluation order, and a formal Turing-completeness argument — at which point a working interpreter will exist. A third installment, deferred, will run the empirical LLM-prompting study the design hypothesises about.
 
+## Runtime status
+
+The Python interpreter is being built in phases that track the six grammatical mappings from `05` §3 and the worked examples from `05` §5. As of v0.0.6 (commit `c22c8d7`):
+
+| Phase | Mapping covered | Example file | Status |
+|---|---|---|---|
+| 1 | *ser* binding + 1-clitic vos imperative (§3.1, §3.6) | `examples/hello-mundo.infl` | shipped |
+| 2 | *estar* binding + imperative mutation (§3.1, §3.6) | `examples/contador.infl` | shipped |
+| 3a | *Cuando* subjunctive deferred binding (§3.2) | `examples/contador-listo.infl` | shipped |
+| 3b | *Mientras* iteration + arithmetic (§3.2, §3.7) | `examples/contador-cuenta.infl` | shipped |
+| 4 | Number agreement + collections + broadcasting (§3.6, §3.7) | `examples/precios.infl` | shipped |
+| 5 | Function definition (relative-clause syntax), positional calls, clitic stacks > 1, reductions (§3.4, §3.8) | `examples/descontar.infl`, `examples/transferir.infl` | **shipped (v0.0.6, `c22c8d7`)** |
+| 6 | Diminutive / augmentative scaling + aspect-marked lazy (§3.3, §3.5) | TBD | planned |
+
+60 tests passing as of Phase 5. The runtime is hand-built (Python + spaCy `es_core_news_sm` morphology + a custom rule layer for vos imperatives and irregular bare-stem resolution). Source lives in `src/inflexion/`; tests in `tests/`; runnable example programs in `examples/`.
+
 ## Naming
 
 The language was carried under the placeholder `«»` through the first complete draft and named *Inflexión* on 2026-05-09. The naming exercise — what the four candidate dimensions were, why the *mechanism* dimension won, and why *Inflexión* specifically over *Flexión*, *Concordancia*, *Conjugación*, and *Morfema* — is documented in `05` §11. The directory is `/data/rci/Inflexion/` (ASCII-safe); the language name keeps the accent.
