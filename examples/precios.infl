@@ -1,0 +1,4 @@
+Los precios son [100, 200, 300, 400].
+El descuento es 0.10.
+Los precios_finales son los precios menos el descuento por los precios.
+Decí los precios_finales.

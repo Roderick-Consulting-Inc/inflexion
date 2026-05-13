@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión AST — Phase 3b node types.
+"""Inflexión AST — Phase 4 node types.
 
 Phase 2 added:
     - BindingEstar: mutable binding via *estar* (El X está en Y)
@@ -12,17 +12,33 @@ Phase 3a added:
     - DeferredBinding: subjunctive deferred observer
       (`Cuando el X esté en Y, <imperative>`)
 
-Phase 3b adds:
-    - BinaryOp: integer arithmetic (`el X más N`, `el X menos N`),
-      with operands themselves drawn from `Expr` so bindings and
-      literals can both appear in either slot
+Phase 3b added:
+    - BinaryOp: arithmetic (`el X más N`, `el X menos N`), with operands
+      themselves drawn from `Expr` so bindings and literals can both
+      appear in either slot
     - EstaCondition / NegatedCondition: subjunctive condition shapes
       (`el X esté en Y` / `el X no esté en Y`) — reused as the head
       of a `mientras` clause
     - WhileLoop: bounded iteration (`Mientras <cond>, hacé <imperative>`)
 
-Phase 3c+ will add multiplication/division, plural collections,
-function definitions, clitic stacks > 1, diminutive/aspect, etc.
+Phase 4 adds (number agreement → scalar / collection):
+    - FloatLit: decimal-literal support (`0.10`, `3.14`). Distinct from
+      `IntLit` so downstream consumers can keep scalar-int tests cheap.
+    - ListLit: homogeneous numeric collection literal (`[100, 200, 300]`).
+      Phase 4 restricts element type to int / float; strings and nested
+      collections are deferred.
+    - BindingSerPlural: plural ser binding (`Los X son <expr>`). Parser-
+      and runtime-enforced: the RHS must evaluate to a collection, and
+      `Los X son 5` is a parse error per the Phase 4 simplification of
+      paper §3.6 (implicit-length scalar broadcast deferred to Phase 5+).
+    - DecirPluralCommand: print a collection bound under a plural article
+      (`Decí los X`). Distinct from `DecirCommand` so the singular path
+      stays byte-for-byte unchanged.
+    - `BinaryOp.op` is extended to accept `"por"` (multiplication).
+
+Phase 5+ will add function definitions, clitic stacks > 1, diminutive /
+augmentative scaling, aspect-marked lazy evaluation, and reduction
+constructs (`el resultado de sumar los X`).
 """
 from __future__ import annotations
 
@@ -45,6 +61,17 @@ class IntLit:
 
 
 @dataclass(frozen=True)
+class FloatLit:
+    """A decimal literal, e.g. 0.10, 3.14. Phase 4 addition.
+
+    Kept distinct from `IntLit` so the existing integer-only arithmetic
+    paths can fast-path scalar-int cases without an isinstance(float) check.
+    """
+
+    value: float
+
+
+@dataclass(frozen=True)
 class Identifier:
     """A bare identifier — the noun in a binding or referent name."""
 
@@ -52,26 +79,54 @@ class Identifier:
 
 
 @dataclass(frozen=True)
-class BinaryOp:
-    """Integer arithmetic on two `Expr` operands: `el X más N`, `el X menos N`.
+class ListLit:
+    """A homogeneous numeric collection literal: `[100, 200, 300, 400]`.
 
-    Phase 3b wires only `+` (Spanish *más*) and `−` (Spanish *menos*).
-    Multiplication, division, and other operators are deferred to a
-    later phase. Either operand may be an `Identifier` (a binding name)
-    or an `IntLit`; mixing a `StringLit` in raises at runtime.
+    Phase 4 restricts element types to `IntLit` and `FloatLit`. Mixing the
+    two within one literal is allowed (Python coerces under arithmetic);
+    strings, identifiers, and nested collections are deferred.
     """
 
-    op: str  # "más" or "menos"
+    elements: tuple["Expr", ...]
+
+
+@dataclass(frozen=True)
+class BinaryOp:
+    """Numeric arithmetic on two `Expr` operands.
+
+    Phase 3b wired `+` (*más*) and `−` (*menos*); Phase 4 adds `×` (*por*).
+    Either operand may be an `Identifier`, an `IntLit` / `FloatLit`, a
+    `ListLit`, or another `BinaryOp`. Scalar–collection and collection–
+    collection broadcasting is handled at evaluation time (see the
+    interpreter); the AST itself is shape-agnostic.
+    """
+
+    op: str  # "más", "menos", "por"
     left: "Expr"
     right: "Expr"
 
 
-Expr = Union[StringLit, IntLit, Identifier, "BinaryOp"]
+Expr = Union[StringLit, IntLit, FloatLit, Identifier, ListLit, "BinaryOp"]
 
 
 @dataclass(frozen=True)
 class BindingSer:
-    """Immutable binding via *ser*: `El <name> es <value>.`"""
+    """Immutable scalar binding via *ser*: `El <name> es <value>.`"""
+
+    name: str
+    value: Expr
+
+
+@dataclass(frozen=True)
+class BindingSerPlural:
+    """Immutable plural binding via *ser*: `Los <name> son <collection-expr>.`
+
+    Phase 4 addition. The RHS must evaluate to a collection at runtime;
+    the parser rejects `Los X son <scalar-literal>` outright per the
+    Phase 4 simplification of paper §3.6. Plural identifiers and
+    plural-yielding arithmetic (broadcast / element-wise) are allowed
+    on the RHS.
+    """
 
     name: str
     value: Expr
@@ -104,11 +159,24 @@ class MutationCommand:
 
 @dataclass(frozen=True)
 class DecirCommand:
-    """Imperative read-and-print: `Decí <article> <noun>.`
+    """Imperative read-and-print of a scalar: `Decí <singular-article> <noun>.`
 
     Phase 2 form that names its argument as a full noun phrase, as opposed
     to the Phase 1 `Decilo` form which dereferences the most-recent binding
     via the enclitic `lo`.
+    """
+
+    name: str
+
+
+@dataclass(frozen=True)
+class DecirPluralCommand:
+    """Imperative read-and-print of a collection: `Decí los <noun>.`
+
+    Phase 4 addition. Distinct from `DecirCommand` so the existing
+    singular path is byte-for-byte unchanged; the plural form prints
+    the collection using a Python-list repr (documented choice; see
+    `interpreter._format_collection`).
     """
 
     name: str
@@ -222,9 +290,11 @@ class WhileLoop:
 
 Statement = Union[
     BindingSer,
+    BindingSerPlural,
     BindingEstar,
     MutationCommand,
     DecirCommand,
+    DecirPluralCommand,
     DecirExpr,
     DecirLiteral,
     ImperativeCall,

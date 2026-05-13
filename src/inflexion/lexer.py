@@ -1,18 +1,26 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión lexer — Phase 1.
+"""Inflexión lexer — Phase 4.
 
 Strategy:
     1. Pre-process source: replace every "..."-quoted string with a placeholder
-       token (__STR0__, __STR1__, ...) so spaCy doesn't fragment string contents.
+       token (Strliteral0, Strliteral1, ...) so spaCy doesn't fragment string
+       contents.
     2. Tokenise the placeholdered source with spaCy's Spanish model
        (es_core_news_sm).
-    3. Return a list of lightweight `Token` records and the captured string
+    3. Post-process: split a trailing ASCII `.` off any non-numeric token
+       (`Y.` → `Y` + `.`). spaCy's tagger occasionally glues sentence-final
+       periods onto short or uppercase identifiers, which would otherwise
+       break sentence splitting in the parser. Decimal numerics like
+       `0.10` are deliberately left alone — the dot is intrinsic to the
+       literal there.
+    4. Return a list of lightweight `Token` records and the captured string
        literal table for the parser to substitute back.
 
-The token record carries the surface form, lowercased form, POS, lemma, and
-morphological feature string — enough for the Phase 1 parser to recognise
-articles (`el`, `la`), the *ser* copula (`es`), vos-imperatives, periods, and
-string-literal placeholders.
+The token record carries the surface form, lowercased form, POS, lemma,
+morphological feature string, and (Phase 4) a `numeric_value` field that
+is set for decimal-literal tokens so the parser can build `FloatLit` /
+`IntLit` without re-parsing the surface form. The Phase 4 additions are
+purely additive on top of the Phase 3b lexer.
 """
 from __future__ import annotations
 
@@ -39,6 +47,10 @@ _STRING_PATTERN = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"')
 _PLACEHOLDER_PREFIX = "Strliteral"
 _PLACEHOLDER_RE = re.compile(rf"^{_PLACEHOLDER_PREFIX}(\d+)$")
 
+# A token surface is "numeric" if it parses as an int or a decimal float.
+# Used by the post-process pass to decide whether to strip a trailing `.`.
+_NUMERIC_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+
 
 @dataclass(frozen=True)
 class Token:
@@ -62,6 +74,21 @@ class Token:
             raise ValueError(f"Not a string placeholder: {self.text!r}")
         return int(match.group(1))
 
+    @property
+    def is_numeric(self) -> bool:
+        """True if the surface form parses as an int or decimal float.
+
+        Phase 4: used by the parser to recognise `IntLit` / `FloatLit`
+        without depending on spaCy's POS tag, which is unreliable on
+        bare digit strings inside list literals.
+        """
+        return bool(_NUMERIC_RE.match(self.text))
+
+    @property
+    def is_integer_literal(self) -> bool:
+        """True if the surface form is a base-10 integer (no decimal point)."""
+        return self.is_numeric and "." not in self.text
+
 
 @lru_cache(maxsize=1)
 def _nlp():
@@ -76,7 +103,7 @@ def _nlp():
 
 
 def _extract_strings(source: str) -> tuple[str, list[str]]:
-    """Replace each "..." literal with __STRi__ and return (new_source, strings)."""
+    """Replace each "..." literal with Strliteral<i> and return (new_source, strings)."""
     strings: list[str] = []
 
     def _replace(match: re.Match[str]) -> str:
@@ -89,6 +116,51 @@ def _extract_strings(source: str) -> tuple[str, list[str]]:
         return f" {_PLACEHOLDER_PREFIX}{idx} "
 
     return _STRING_PATTERN.sub(_replace, source), strings
+
+
+def _split_trailing_period(tokens: list[Token]) -> list[Token]:
+    """Split a trailing `.` off any non-numeric token.
+
+    spaCy occasionally glues a sentence-final period onto short or
+    uppercase identifiers — e.g. `Y.` arrives as one token instead of
+    two. We post-process the token stream to split such cases, but
+    leave decimal numerics (where the dot is intrinsic, e.g. `0.10`)
+    alone. Punctuation tokens and string-literal placeholders are also
+    left untouched.
+    """
+    out: list[Token] = []
+    for tok in tokens:
+        if (
+            not tok.is_punct
+            and not tok.is_string_placeholder
+            and not _NUMERIC_RE.match(tok.text)
+            and tok.text.endswith(".")
+            and len(tok.text) > 1
+        ):
+            head_text = tok.text[:-1]
+            out.append(
+                Token(
+                    text=head_text,
+                    lower=head_text.lower(),
+                    pos=tok.pos,
+                    lemma=tok.lemma,
+                    morph=tok.morph,
+                    is_punct=False,
+                )
+            )
+            out.append(
+                Token(
+                    text=".",
+                    lower=".",
+                    pos="PUNCT",
+                    lemma=".",
+                    morph="PunctType=Peri",
+                    is_punct=True,
+                )
+            )
+            continue
+        out.append(tok)
+    return out
 
 
 def lex(source: str) -> tuple[list[Token], list[str]]:
@@ -109,4 +181,4 @@ def lex(source: str) -> tuple[list[Token], list[str]]:
                 is_punct=tok.is_punct,
             )
         )
-    return tokens, strings
+    return _split_trailing_period(tokens), strings

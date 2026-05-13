@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión interpreter — Phase 3b.
+"""Inflexión interpreter — Phase 4.
 
 Walks the AST, evaluating bindings into an Environment that distinguishes
 *ser* (immutable) from *estar* (mutable) bindings, dispatches imperatives,
@@ -11,19 +11,34 @@ Phase 3b additions:
     - Integer arithmetic in expression position (`+` via `más`, `−` via
       `menos`) on bindings and literals.
     - Negated subjunctive condition (`no esté en Y`) — fires when the
-      cell's current value is NOT equal to Y. Used as the head of a
-      `Mientras` loop; not yet supported by `Cuando`.
+      cell's current value is NOT equal to Y.
     - `Mientras <condition>, hacé <imperative>` while-loop with a hard
-      safety cap on iterations (see `MAX_MIENTRAS_ITERATIONS`) so a
-      mis-bounded loop fails fast instead of hanging the interpreter.
+      safety cap on iterations (see `MAX_MIENTRAS_ITERATIONS`).
 
-Phase 3b simplifications retained:
+Phase 4 additions (number agreement → scalar / collection):
+    - Collection values: a `ListLit` evaluates to a tuple. Tuples are
+      treated as immutable values throughout — Phase 4 plural ser
+      bindings are immutable, and there is no plural estar yet.
+    - Float literals: `FloatLit` evaluates to a Python float; arithmetic
+      mixing int and float promotes to float per Python's usual rules.
+    - `por` (multiplication) joins `más` / `menos` as a recognised
+      arithmetic operator.
+    - Broadcasting:
+        * scalar `op` collection  →  element-wise (collection length preserved)
+        * collection `op` scalar  →  element-wise
+        * collection `op` collection of equal length  → element-wise
+        * collection `op` collection of different lengths → runtime error
+    - `Decí los <name>` (DecirPluralCommand) prints a collection. Format
+      choice: Python-list repr (e.g. `[90.0, 180.0, 270.0, 360.0]`) plus
+      a trailing newline. Documented in `_format_collection`.
+
+Phase 4 simplifications retained from Phase 3b:
     - The clitic `lo` on a vos-imperative still dereferences the most-recent
-      binding (Phase 1 anaphora). Proper resolution lands later.
-    - The only imperative verbs wired up are `decir` (print) and `hacer` (the
-      mutation marker `Hacé que ...`).
-    - Equality is value-identity (Python `==`). Arithmetic comparisons
-      other than equality (`<`, `>`, `≥`) are deferred to Phase 4+.
+      binding (Phase 1 anaphora).
+    - The only imperative verbs wired up are `decir` (print) and `hacer`
+      (the mutation marker `Hacé que ...`).
+    - Equality is value-identity (Python `==`).
+    - Arithmetic comparisons other than equality are deferred.
 """
 from __future__ import annotations
 
@@ -35,16 +50,20 @@ from .ast import (
     BinaryOp,
     BindingEstar,
     BindingSer,
+    BindingSerPlural,
     Condition,
     DecirCommand,
     DecirExpr,
     DecirLiteral,
+    DecirPluralCommand,
     DeferredBinding,
     EstaCondition,
     Expr,
+    FloatLit,
     Identifier,
     ImperativeCall,
     IntLit,
+    ListLit,
     MutationCommand,
     NegatedCondition,
     Program,
@@ -181,35 +200,98 @@ class Environment:
         return self.cells[self.binding_order[-1]].value
 
 
+def _is_scalar_number(value: object) -> bool:
+    """True if `value` is a numeric scalar (int or float, but not bool)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _check_numeric(value: object, op: str) -> None:
+    """Raise if `value` is not a numeric scalar (used inside element-wise apply)."""
+    if not _is_scalar_number(value):
+        raise InflexionRuntimeError(
+            f"Arithmetic operand is not a number: {value!r} (in `{op}`)."
+        )
+
+
+def _apply_scalar(op: str, left: float, right: float) -> float:
+    """Apply a Phase-4 binary arithmetic op to two numeric scalars."""
+    if op == "más":
+        return left + right
+    if op == "menos":
+        return left - right
+    if op == "por":
+        return left * right
+    raise InflexionRuntimeError(  # pragma: no cover - parser-filtered
+        f"Unsupported arithmetic operator: {op!r}"
+    )
+
+
+def _broadcast(op: str, left: object, right: object) -> object:
+    """Apply `op` to `left` and `right` with Phase 4 broadcast semantics.
+
+    Rules:
+        - scalar op scalar          → scalar
+        - tuple  op scalar          → tuple (element-wise)
+        - scalar op tuple           → tuple (element-wise)
+        - tuple  op tuple (eq len)  → tuple (element-wise)
+        - tuple  op tuple (mismatch)→ InflexionRuntimeError
+
+    Phase 4 collections are represented as tuples. Mixed-type
+    collections (e.g. a tuple containing both numbers and strings) are
+    out of scope; element-wise apply checks each operand for numericness
+    at use time and raises on non-numeric content.
+    """
+    left_is_coll = isinstance(left, tuple)
+    right_is_coll = isinstance(right, tuple)
+    if left_is_coll and right_is_coll:
+        if len(left) != len(right):
+            raise InflexionRuntimeError(
+                f"Collection-arithmetic length mismatch (`{op}`): "
+                f"left has {len(left)} elements, right has {len(right)}."
+            )
+        result: list[object] = []
+        for l_elt, r_elt in zip(left, right):
+            _check_numeric(l_elt, op)
+            _check_numeric(r_elt, op)
+            result.append(_apply_scalar(op, l_elt, r_elt))
+        return tuple(result)
+    if left_is_coll:
+        _check_numeric(right, op)
+        scalar = right
+        out: list[object] = []
+        for elt in left:
+            _check_numeric(elt, op)
+            out.append(_apply_scalar(op, elt, scalar))
+        return tuple(out)
+    if right_is_coll:
+        _check_numeric(left, op)
+        scalar = left
+        out_r: list[object] = []
+        for elt in right:
+            _check_numeric(elt, op)
+            out_r.append(_apply_scalar(op, scalar, elt))
+        return tuple(out_r)
+    # Both scalar.
+    _check_numeric(left, op)
+    _check_numeric(right, op)
+    return _apply_scalar(op, left, right)
+
+
 def _eval_expr(expr: Expr, env: Environment) -> object:
     if isinstance(expr, StringLit):
         return expr.value
     if isinstance(expr, IntLit):
         return expr.value
+    if isinstance(expr, FloatLit):
+        return expr.value
+    if isinstance(expr, ListLit):
+        # Element-wise eval; result is a Python tuple (immutable).
+        return tuple(_eval_expr(e, env) for e in expr.elements)
     if isinstance(expr, Identifier):
         return env.lookup(expr.name)
     if isinstance(expr, BinaryOp):
-        left = _eval_expr(expr.left, env)
-        right = _eval_expr(expr.right, env)
-        # Phase 3b restricts arithmetic to integers. Strings (or any
-        # non-int operand) surface as a runtime error so a typo like
-        # `Decí el saludo más 1` doesn't silently concatenate.
-        if not isinstance(left, int) or isinstance(left, bool):
-            raise InflexionRuntimeError(
-                f"Arithmetic operand is not an integer: {left!r} "
-                f"(in `{expr.op}`)."
-            )
-        if not isinstance(right, int) or isinstance(right, bool):
-            raise InflexionRuntimeError(
-                f"Arithmetic operand is not an integer: {right!r} "
-                f"(in `{expr.op}`)."
-            )
-        if expr.op == "más":
-            return left + right
-        if expr.op == "menos":
-            return left - right
-        raise InflexionRuntimeError(  # pragma: no cover - parser-filtered
-            f"Unsupported arithmetic operator: {expr.op!r}"
+        return _broadcast(
+            expr.op, _eval_expr(expr.left, env), _eval_expr(expr.right, env)
         )
     raise InflexionRuntimeError(f"Unsupported expression: {expr!r}")
 
@@ -241,6 +323,26 @@ def _resolve_clitic(clitic: str, env: Environment) -> object:
     )
 
 
+def _format_collection(value: object) -> str:
+    """Render a collection value for `Decí los X`.
+
+    Format choice: Python-list repr (e.g. `[90.0, 180.0, 270.0, 360.0]`).
+    Rationale: round-trippable with the list-literal source syntax,
+    unambiguous on element type (a float prints with its `.0`), and
+    keeps the prose distinct from a single scalar print. The
+    JSON-style and Spanish-prose alternatives the spec offers were
+    considered; the list-repr form was chosen because it is the cheapest
+    output that survives reparse by the same lexer.
+    """
+    if not isinstance(value, tuple):
+        raise InflexionRuntimeError(
+            f"`Decí los <name>` requires a collection; got {value!r} "
+            f"(a scalar). Did you mean `Decí el {value!r}`?"
+        )
+    inner = ", ".join(repr(elt) for elt in value)
+    return f"[{inner}]"
+
+
 def _execute_imperative(call: ImperativeCall, env: Environment, out: io.StringIO) -> None:
     if call.verb_lemma == "decir":
         if call.clitic is None:
@@ -266,6 +368,18 @@ def _execute_statement(
     """
     if isinstance(stmt, BindingSer):
         env.bind_ser(stmt.name, _eval_expr(stmt.value, env))
+    elif isinstance(stmt, BindingSerPlural):
+        value = _eval_expr(stmt.value, env)
+        if not isinstance(value, tuple):
+            # Phase 4 invariant: a plural ser binding must hold a
+            # collection. The parser already rejects scalar-literal
+            # RHS; this guard catches the runtime case where an
+            # identifier-on-the-right turned out to be scalar.
+            raise InflexionRuntimeError(
+                f"Plural binding `Los {stmt.name} son …` requires a "
+                f"collection-valued RHS; evaluated to scalar {value!r}."
+            )
+        env.bind_ser(stmt.name, value)
     elif isinstance(stmt, BindingEstar):
         env.bind_estar(stmt.name, _eval_expr(stmt.value, env))
     elif isinstance(stmt, MutationCommand):
@@ -274,8 +388,14 @@ def _execute_statement(
             _execute_statement(action, env, out)
     elif isinstance(stmt, DecirCommand):
         out.write(f"{env.lookup(stmt.name)}\n")
+    elif isinstance(stmt, DecirPluralCommand):
+        out.write(f"{_format_collection(env.lookup(stmt.name))}\n")
     elif isinstance(stmt, DecirExpr):
-        out.write(f"{_eval_expr(stmt.value, env)}\n")
+        value = _eval_expr(stmt.value, env)
+        if isinstance(value, tuple):
+            out.write(f"{_format_collection(value)}\n")
+        else:
+            out.write(f"{value}\n")
     elif isinstance(stmt, DecirLiteral):
         out.write(f"{stmt.value.value}\n")
     elif isinstance(stmt, ImperativeCall):

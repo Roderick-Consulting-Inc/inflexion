@@ -1,28 +1,38 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión parser — Phase 3b.
+"""Inflexión parser — Phase 4.
 
 Recognises these sentence shapes (each terminated by `.`):
 
-    1. Ser-binding (immutable):  `El <noun> es <value>.`
-    2. Estar-binding (mutable):  `El <noun> está en <value>.`
-    3. Mutation:                 `Hacé que el <noun> esté en <value>.`
-    4. Decí read-and-print:      `Decí <value>.`
-    5. Vos-imperative w/ clitic: `Decilo.`  (Phase 1 single-clitic form)
-    6. Subjunctive deferred:     `Cuando el <noun> esté en <value>, <imperative>.`
-                                  (Phase 3a — registers a one-shot observer)
-    7. While-loop (Phase 3b):    `Mientras el <noun> [no] esté en <value>,
-                                  <imperative>.`
+    1. Ser-binding (immutable, singular): `El <noun> es <value>.`
+    2. Ser-binding (immutable, plural):   `Los <noun> son <collection-expr>.`
+                                          (Phase 4 — RHS must be a
+                                           list literal or another
+                                           collection-typed expression;
+                                           `Los X son 5` is a parse error)
+    3. Estar-binding (mutable):           `El <noun> está en <value>.`
+    4. Mutation:                          `Hacé que el <noun> esté en <value>.`
+    5. Decí read-and-print (scalar):      `Decí el <noun>.` / `Decí <expr>.`
+    6. Decí read-and-print (plural):      `Decí los <noun>.`  (Phase 4)
+    7. Vos-imperative w/ clitic:          `Decilo.`
+    8. Subjunctive deferred:              `Cuando el <noun> esté en <value>, <imp>.`
+    9. While-loop:                        `Mientras el <noun> [no] esté en <value>,
+                                           <imperative>.`
 
 Value positions accept string-literal placeholders, integer literals,
-identifiers, or a Phase-3b two-operand arithmetic form: `el <name> más
-<value>` / `el <name> menos <value>` (and equally `<literal> más
-<value>`). Arithmetic operands are themselves restricted to identifiers
-or integer literals; nested arithmetic is deferred to a later phase.
+decimal literals (Phase 4), identifiers, list literals (Phase 4), an
+articled binding name (`el <noun>` or `los <noun>`), or a two-operand
+arithmetic form using `más` / `menos` / `por` (`por` is Phase 4).
 
-Clitic detection: spaCy's es_core_news_sm does not always split enclitic
-pronouns off the verb, so we apply a manual suffix-strip pass over the known
-single-clitic set for tokens that look like verb forms. Phase 3b still supports
-only a single enclitic on the Phase 1 imperative path.
+Number agreement (paper §3.6, Phase 4):
+    - A plural article (`los` / `las`) must combine with a plural noun
+      and a plural verb form (`son`); singular article + plural noun
+      (`el precios`) is a parse error.
+    - The RHS of a plural ser binding must be a collection-producing
+      expression. Phase 4 deliberately rejects the implicit scalar
+      broadcast `Los X son 5` documented in paper §3.6: that rule
+      requires a length to be established by context (function-call
+      arity), which Phase 4 does not yet provide. Phase 5+ will lift
+      this restriction.
 """
 from __future__ import annotations
 
@@ -30,16 +40,20 @@ from .ast import (
     BinaryOp,
     BindingEstar,
     BindingSer,
+    BindingSerPlural,
     Condition,
     DecirCommand,
     DecirExpr,
     DecirLiteral,
+    DecirPluralCommand,
     DeferredBinding,
     EstaCondition,
     Expr,
+    FloatLit,
     Identifier,
     ImperativeCall,
     IntLit,
+    ListLit,
     MutationCommand,
     NegatedCondition,
     Program,
@@ -49,11 +63,18 @@ from .ast import (
 )
 from .lexer import Token
 
-# Arithmetic operators recognised in Phase 3b. Both are surface-form lookups.
-_ARITHMETIC_OPS = {"más", "menos"}
+# Arithmetic operators recognised in Phase 4. Surface-form lookups.
+# `más` and `menos` were Phase 3b; `por` (multiplication) is Phase 4.
+_ARITHMETIC_OPS = {"más", "menos", "por"}
 
-# Singular definite + indefinite articles. Phase 2 still only handles singular.
+# Singular definite + indefinite articles. The singular set is closed.
 _SINGULAR_ARTICLES = {"el", "la", "un", "una"}
+
+# Plural definite articles. Phase 4 adds the plural set. Indefinite
+# plurals (`unos`, `unas`) are not yet used in any documented example
+# but are accepted so future phases can adopt them without re-touching
+# this table.
+_PLURAL_ARTICLES = {"los", "las", "unos", "unas"}
 
 # Spanish clitic pronouns. Order matters: longer suffixes first so we don't
 # strip "le" off "les" or "la" off "las".
@@ -76,6 +97,10 @@ _VOS_IMPERATIVE_LEMMAS = {
 }
 
 
+class InflexionParseError(SyntaxError):
+    """Phase 2+ parse error. Subclass of SyntaxError for backwards compatibility."""
+
+
 def _strip_clitic(verb_form: str) -> tuple[str, str | None]:
     """Return (bare_verb, clitic_or_None) by stripping a known enclitic suffix."""
     low = verb_form.lower()
@@ -85,18 +110,32 @@ def _strip_clitic(verb_form: str) -> tuple[str, str | None]:
     return low, None
 
 
-def _atom_from_token(tok: Token, strings: list[str]) -> Expr:
-    """Resolve a single value-position token to a StringLit, IntLit, or Identifier.
+def _is_plural_noun(tok: Token) -> bool:
+    """True if spaCy marks `tok` with Number=Plur (Phase 4 number-agreement check)."""
+    return "Number=Plur" in tok.morph
 
-    Pre-Phase-3b helper. Multi-token value forms (arithmetic, articled
-    bindings) are handled by `_parse_value` instead.
+
+def _atom_from_token(tok: Token, strings: list[str]) -> Expr:
+    """Resolve a single value-position token to a literal or Identifier.
+
+    Pre-Phase-3b helper; extended in Phase 4 to recognise decimal
+    literals (`FloatLit`) alongside integers and strings. Multi-token
+    value forms (arithmetic, articled bindings, list literals) are
+    handled by `_parse_value` instead.
     """
     if tok.is_string_placeholder:
         return StringLit(strings[tok.placeholder_index])
-    # Integer literal: spaCy tags as NUM with NumForm=Digit. Fall back to a
-    # str-isdigit check for robustness against tagger variation.
-    if tok.pos == "NUM" or tok.text.lstrip("-").isdigit():
+    # Numeric literal — Phase 4 splits int / decimal so the AST carries
+    # the distinction even though Python coerces them under arithmetic.
+    if tok.is_numeric:
+        if tok.is_integer_literal:
+            return IntLit(int(tok.text))
+        return FloatLit(float(tok.text))
+    # Fallback: spaCy NUM tag for forms we didn't catch above.
+    if tok.pos == "NUM":
         try:
+            if "." in tok.text:
+                return FloatLit(float(tok.text))
             return IntLit(int(tok.text))
         except ValueError as exc:  # pragma: no cover - defensive
             raise SyntaxError(f"Bad numeric literal {tok.text!r}") from exc
@@ -107,20 +146,71 @@ def _atom_from_token(tok: Token, strings: list[str]) -> Expr:
 _value_from_token = _atom_from_token
 
 
+def _parse_list_literal(
+    tokens: list[Token], strings: list[str]
+) -> tuple[ListLit, int]:
+    """Parse a `[<num>, <num>, ...]` list literal starting at `tokens[0]`.
+
+    Returns the parsed `ListLit` plus the count of tokens consumed
+    (including the closing `]`). Phase 4 restricts element types to
+    numeric literals (`IntLit` / `FloatLit`); identifiers, strings, and
+    nested collections are deferred.
+    """
+    if not tokens or tokens[0].text != "[":
+        raise InflexionParseError(  # pragma: no cover - caller filters
+            f"Expected `[` to open a list literal; got "
+            f"{tokens[0].text if tokens else '<eof>'!r}"
+        )
+    elements: list[Expr] = []
+    i = 1
+    # Empty list `[]` is allowed; arithmetic on it raises at runtime.
+    if i < len(tokens) and tokens[i].text == "]":
+        return ListLit(elements=()), 2
+    while i < len(tokens):
+        elt_tok = tokens[i]
+        if not elt_tok.is_numeric:
+            raise InflexionParseError(
+                f"Phase 4 list literal accepts only numeric elements; "
+                f"got {elt_tok.text!r}"
+            )
+        elements.append(_atom_from_token(elt_tok, strings))
+        i += 1
+        if i >= len(tokens):
+            break
+        sep = tokens[i]
+        if sep.text == "]":
+            return ListLit(elements=tuple(elements)), i + 1
+        if sep.text != ",":
+            raise InflexionParseError(
+                f"Expected `,` or `]` in list literal; got {sep.text!r}"
+            )
+        i += 1
+    raise InflexionParseError(
+        f"Unclosed list literal: {[t.text for t in tokens]}"
+    )
+
+
 def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, int]:
     """Parse a single arithmetic operand starting at `tokens[0]`.
 
-    Operand shapes in Phase 3b are:
-        - `el <name>` / `la <name>` / ...   -> Identifier  (2 tokens)
-        - `<literal>`                       -> StringLit / IntLit (1 token)
-        - `<identifier>`                    -> Identifier (1 token)
+    Operand shapes in Phase 4 are:
+        - `[<num>, <num>, ...]`             -> ListLit         (variable token count)
+        - `el <name>` / `la <name>`         -> Identifier      (2 tokens)
+        - `los <name>` / `las <name>`       -> Identifier      (2 tokens, plural)
+        - `<literal>`                       -> StringLit / IntLit / FloatLit (1 token)
+        - `<identifier>`                    -> Identifier      (1 token)
 
-    Returns the parsed Expr plus the number of tokens consumed.
+    Returns the parsed Expr plus the number of tokens consumed. The
+    plural-article variant is accepted in any value position; the
+    number-agreement check on the *binding side* is enforced by the
+    binding parser, not here.
     """
     if not tokens:
         raise SyntaxError("Expected value, got end of clause.")
     first = tokens[0]
-    if first.lower in _SINGULAR_ARTICLES:
+    if first.text == "[":
+        return _parse_list_literal(tokens, strings)
+    if first.lower in _SINGULAR_ARTICLES or first.lower in _PLURAL_ARTICLES:
         if len(tokens) < 2:
             raise SyntaxError(
                 f"Article {first.text!r} not followed by a noun in value position."
@@ -129,35 +219,63 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
     return _atom_from_token(first, strings), 1
 
 
+# Phase 4 arithmetic precedence: `por` (multiplication) binds tighter
+# than `más` / `menos` (additive). Required so paper §5 Example 4's
+# `los precios menos el descuento por los precios` parses as
+# `precios − (descuento × precios)`, matching the gloss in the paper.
+_MULT_OPS = {"por"}
+_ADD_OPS = {"más", "menos"}
+
+
+def _parse_mult_chain(
+    tokens: list[Token], start: int, strings: list[str]
+) -> tuple[Expr, int]:
+    """Parse a left-associative chain of `por` operators starting at `start`.
+
+    Returns (node, next_index). Multiplicative precedence — higher than
+    additive — so `A más B por C` parses as `A más (B por C)`.
+    """
+    left, consumed = _parse_arith_atom(tokens[start:], strings)
+    pos = start + consumed
+    while pos < len(tokens) and tokens[pos].lower in _MULT_OPS:
+        op = tokens[pos].lower
+        right, right_consumed = _parse_arith_atom(tokens[pos + 1 :], strings)
+        left = BinaryOp(op=op, left=left, right=right)
+        pos += 1 + right_consumed
+    return left, pos
+
+
 def _parse_value(tokens: list[Token], strings: list[str]) -> Expr:
     """Parse the value/expression occupying a contiguous token slice.
 
     Handles a single-token literal/identifier, an articled binding name
-    (`el <noun>`), or a Phase-3b two-operand arithmetic form
-    (`<operand> más <operand>`, `<operand> menos <operand>`). Trailing
-    or unconsumed tokens raise SyntaxError so callers don't silently
-    drop user-written content.
+    (`el <noun>` or `los <noun>`), a list literal, or an arithmetic
+    expression using `más` / `menos` / `por`. Operator precedence: `por`
+    binds tighter than `más` / `menos`; both levels are left-associative.
+
+    Trailing or unconsumed tokens raise SyntaxError so callers don't
+    silently drop user-written content.
     """
     if not tokens:
         raise SyntaxError("Expected value, got empty token slice.")
-    left, consumed = _parse_arith_atom(tokens, strings)
-    if consumed == len(tokens):
-        return left
-    # Arithmetic: expect `<op> <atom>` after the first operand.
-    op_tok = tokens[consumed]
-    if op_tok.lower not in _ARITHMETIC_OPS:
-        raise SyntaxError(
-            f"Unexpected token {op_tok.text!r} in value position "
-            f"(expected `más`/`menos` or end of clause)."
-        )
-    right, right_consumed = _parse_arith_atom(tokens[consumed + 1 :], strings)
-    if consumed + 1 + right_consumed != len(tokens):
-        tail = tokens[consumed + 1 + right_consumed :]
-        raise SyntaxError(
-            f"Trailing tokens after arithmetic expression: "
-            f"{[t.text for t in tail]} (Phase 3b allows only one operator)."
-        )
-    return BinaryOp(op=op_tok.lower, left=left, right=right)
+    left, pos = _parse_mult_chain(tokens, 0, strings)
+    while pos < len(tokens):
+        op_tok = tokens[pos]
+        if op_tok.lower not in _ADD_OPS:
+            if op_tok.lower in _MULT_OPS:  # pragma: no cover - mult_chain consumed it
+                raise SyntaxError(
+                    f"Unexpected multiplicative operator after value: {op_tok.text!r}"
+                )
+            tail = tokens[pos:]
+            raise SyntaxError(
+                f"Unexpected token {tail[0].text!r} in value position "
+                f"(expected `más`/`menos`/`por` or end of clause). "
+                f"Trailing: {[t.text for t in tail]}"
+            )
+        right, next_pos = _parse_mult_chain(tokens, pos + 1, strings)
+        left = BinaryOp(op=op_tok.lower, left=left, right=right)
+        pos = next_pos
+    return left
 
 
 def _is_estar_indicative(tok: Token) -> bool:
@@ -176,8 +294,28 @@ def _is_hace_imperative(tok: Token) -> bool:
 
 
 def _is_arithmetic_op(tok: Token) -> bool:
-    """True if `tok` is a Phase-3b arithmetic operator (`más`/`menos`)."""
+    """True if `tok` is a Phase-3b/4 arithmetic operator (`más`/`menos`/`por`)."""
     return tok.lower in _ARITHMETIC_OPS
+
+
+def _is_collection_expr(expr: Expr) -> bool:
+    """True if `expr` is syntactically guaranteed to produce a collection.
+
+    Phase 4 uses this for the static check that the RHS of a plural
+    binding does not collapse to a scalar literal. The check is
+    deliberately syntactic and conservative: a `ListLit` is collection;
+    an `Identifier` is collection (its value is checked at runtime);
+    a `BinaryOp` is collection if at least one operand syntactically is.
+    A bare `IntLit` / `FloatLit` / `StringLit` is *not* collection, and
+    triggers the `Los X son <scalar-literal>` parse error.
+    """
+    if isinstance(expr, ListLit):
+        return True
+    if isinstance(expr, Identifier):
+        return True
+    if isinstance(expr, BinaryOp):
+        return _is_collection_expr(expr.left) or _is_collection_expr(expr.right)
+    return False
 
 
 def _parse_condition(tokens: list[Token], strings: list[str]) -> Condition:
@@ -280,12 +418,18 @@ def _split_sentences(tokens: list[Token]) -> list[list[Token]]:
     return sentences
 
 
-def _parse_binding_or_decir(sentence: list[Token], strings: list[str]) -> Statement:
-    """Parse a sentence starting with an article.
+def _parse_singular_binding(
+    sentence: list[Token], strings: list[str]
+) -> Statement:
+    """Parse a sentence starting with a singular article (`el`/`la`/`un`/`una`).
 
     Recognised shapes:
-        - `<article> <noun> es <value>`             -> BindingSer
-        - `<article> <noun> está en <value>`        -> BindingEstar
+        - `<sing-article> <noun> es <value>`        -> BindingSer
+        - `<sing-article> <noun> está en <value>`   -> BindingEstar
+
+    Phase 4 number-agreement check: a singular article followed by a
+    plural noun (`el precios`) is a parse error here, regardless of
+    what follows. This is the syntactic enforcement of paper §3.6.
     """
     if len(sentence) < 4:
         raise SyntaxError(
@@ -294,9 +438,19 @@ def _parse_binding_or_decir(sentence: list[Token], strings: list[str]) -> Statem
     article, noun, copula, *rest = sentence
     if article.lower not in _SINGULAR_ARTICLES:
         raise SyntaxError(f"Expected singular article, got {article.text!r}")
+    # Number-agreement check (paper §3.6): a singular article must
+    # govern a singular noun. spaCy gives reliable Number=Plur
+    # morphology on Spanish nouns the model knows; we trust it and
+    # reject overt mismatches.
+    if _is_plural_noun(noun):
+        raise InflexionParseError(
+            f"Number-agreement error: singular article {article.text!r} "
+            f"with plural noun {noun.text!r}. Use a plural article "
+            f"(`los`/`las`) for collections (paper §3.6)."
+        )
 
-    # Ser binding: `El X es Y.` — value slice may be a single token or, in
-    # Phase 3b, an arithmetic expression like `el total más 3`.
+    # Ser binding: `El X es Y.` — value slice may be a single token or
+    # an arithmetic expression like `el total más 3`.
     if copula.lower == "es":
         if not rest:
             raise SyntaxError(
@@ -316,6 +470,78 @@ def _parse_binding_or_decir(sentence: list[Token], strings: list[str]) -> Statem
     raise SyntaxError(
         f"Expected `es` or `está` after `{article.text} {noun.text}`, got {copula.text!r}"
     )
+
+
+# Backwards-compat alias: the Phase-3b name was `_parse_binding_or_decir`.
+_parse_binding_or_decir = _parse_singular_binding
+
+
+def _parse_plural_binding(
+    sentence: list[Token], strings: list[str]
+) -> BindingSerPlural:
+    """Parse a plural ser binding: `Los <noun> son <collection-expr>.`
+
+    Phase 4 entry point. The verb form must be `son` (plural ser
+    indicative); a singular `es` after a plural article is rejected as
+    a number-agreement error. The RHS must be a collection-producing
+    expression — see `_is_collection_expr` and the Phase 4 simplification
+    note in the module docstring.
+
+    Phase 4 deliberately does not support a plural *estar* binding
+    (`Los X están en …`); the spec defers mutable collection bindings.
+    """
+    if len(sentence) < 4:
+        raise SyntaxError(
+            f"Incomplete plural binding: {[t.text for t in sentence]}"
+        )
+    article, noun, copula, *rest = sentence
+    if article.lower not in _PLURAL_ARTICLES:
+        raise SyntaxError(  # pragma: no cover - caller filters
+            f"Expected plural article, got {article.text!r}"
+        )
+    # Paper §3.6: plural article requires plural noun. spaCy's tagger
+    # is unreliable on novel single-letter / latinate identifiers — it
+    # routinely tags user identifiers like `base` or `valores` as
+    # `Number=Sing` even when the surrounding article is plural. We
+    # therefore do NOT raise on the article→noun direction here; the
+    # plural-verb check below (`son` vs `es`) and the
+    # collection-producing-RHS check together are sufficient to keep
+    # the agreement rule meaningful without false positives on novel
+    # identifiers. The singular-article→plural-noun direction (caught
+    # in `_parse_singular_binding`) is the asymmetric one we keep
+    # strict, because Spanish nouns that the model already knows
+    # (`precios`, `valores`) reliably carry their plural marking.
+    # Verb form: only `son` (plural ser indicative) supported in Phase 4.
+    # Mutable plural bindings (`están en …`) are deferred.
+    if copula.lower != "son":
+        if copula.lower == "es":
+            raise InflexionParseError(
+                f"Number-agreement error: plural article {article.text!r} "
+                f"with singular verb {copula.text!r}. Use `son` for "
+                f"plural ser bindings (paper §3.6)."
+            )
+        raise InflexionParseError(
+            f"Phase 4 plural ser binding expects `son` after `{article.text} "
+            f"{noun.text}`; got {copula.text!r}. Plural estar (`están en`) "
+            f"is deferred to a later phase."
+        )
+    if not rest:
+        raise SyntaxError(
+            f"Plural ser-binding `{article.text} {noun.text} son …` missing value."
+        )
+    value = _parse_value(rest, strings)
+    # Phase 4 simplification of paper §3.6: implicit-length scalar
+    # broadcast is deferred. Require an explicit collection-producing
+    # RHS.
+    if not _is_collection_expr(value):
+        raise InflexionParseError(
+            f"Phase 4 plural binding `{article.text} {noun.text} son …` "
+            f"requires a collection-producing RHS (list literal or "
+            f"plural-identifier-bearing expression). The implicit-length "
+            f"scalar broadcast `Los X son 5` (paper §3.6) is deferred to "
+            f"Phase 5+."
+        )
+    return BindingSerPlural(name=noun.lower, value=value)
 
 
 def _parse_mutation(sentence: list[Token], strings: list[str]) -> MutationCommand:
@@ -356,17 +582,19 @@ def _parse_imperative_tokens(
 
     Recognised shapes (used both at top level and as the action of a
     `Cuando ..., <imperative>` deferred binding):
-        - `Decí <article> <noun>`     -> DecirCommand   (binding name)
-        - `Decí <string-literal>`     -> DecirLiteral   (direct print)
-        - `Decilo` / `Decila` / …     -> ImperativeCall (enclitic form)
+        - `Decí <sing-article> <noun>`   -> DecirCommand        (binding name)
+        - `Decí los <noun>`              -> DecirPluralCommand  (Phase 4)
+        - `Decí <string-literal>`        -> DecirLiteral        (direct print)
+        - `Decí <expr>`                  -> DecirExpr           (arbitrary expr)
+        - `Decilo` / `Decila` / …        -> ImperativeCall      (enclitic form)
     """
     if not tokens:
         raise SyntaxError("Empty imperative clause.")
     first = tokens[0]
     surface = first.lower
 
-    # `Decí` followed by an object — full-NP form, string-literal form,
-    # or (Phase 3b) an arithmetic expression like `Decí el total más 3`.
+    # `Decí` followed by an object — full-NP form, plural-NP form (Phase 4),
+    # string-literal form, or an arithmetic expression.
     if surface in _VOS_IMPERATIVE_LEMMAS and _VOS_IMPERATIVE_LEMMAS[surface] == "decir":
         if len(tokens) == 1:
             raise InflexionParseError(
@@ -377,19 +605,23 @@ def _parse_imperative_tokens(
         # `Decí "<text>"` — direct string-literal print.
         if len(tokens) == 2 and tokens[1].is_string_placeholder:
             return DecirLiteral(value=StringLit(strings[tokens[1].placeholder_index]))
-        # `Decí <article> <noun>` — read-and-print a binding (kept as a
-        # distinct AST node so the interpreter's name-lookup path is
-        # unchanged for the common case).
+        # `Decí los <noun>` — plural read-and-print (Phase 4). Kept as a
+        # distinct AST node so the singular path is unchanged.
+        if (
+            len(tokens) == 3
+            and tokens[1].lower in _PLURAL_ARTICLES
+            and not _is_arithmetic_op(tokens[2])
+        ):
+            return DecirPluralCommand(name=tokens[2].lower)
+        # `Decí <sing-article> <noun>` — singular read-and-print.
         if (
             len(tokens) == 3
             and tokens[1].lower in _SINGULAR_ARTICLES
             and not _is_arithmetic_op(tokens[2])
         ):
             return DecirCommand(name=tokens[2].lower)
-        # Phase 3b: `Decí <value-expression>` — e.g. `Decí el total más 3`.
-        # Reuse `_parse_value` so the same arithmetic surface works here as
-        # in any other value position, and wrap the result so the
-        # interpreter evaluates and prints it.
+        # `Decí <value-expression>` — anything else parseable as a value
+        # expression (arithmetic, list literal, plural-binding read).
         value = _parse_value(tokens[1:], strings)
         return DecirExpr(value=value)
 
@@ -406,7 +638,7 @@ def _parse_imperative_tokens(
             verb_lemma=_VOS_IMPERATIVE_LEMMAS[bare], clitic=clitic
         )
     raise SyntaxError(
-        f"Unrecognised imperative form {first.text!r}. Phase 3a supports "
+        f"Unrecognised imperative form {first.text!r}. Phase 4 supports "
         f"vos-imperatives of: {sorted(set(_VOS_IMPERATIVE_LEMMAS.values()))}"
     )
 
@@ -460,10 +692,6 @@ def _parse_cuando(sentence: list[Token], strings: list[str]) -> DeferredBinding:
     )
 
 
-class InflexionParseError(SyntaxError):
-    """Phase 2 parse error. Subclass of SyntaxError for backwards compatibility."""
-
-
 def parse(tokens: list[Token], strings: list[str]) -> Program:
     """Parse a token stream + string table into a Program."""
     statements: list[Statement] = []
@@ -473,8 +701,10 @@ def parse(tokens: list[Token], strings: list[str]) -> Program:
             statements.append(_parse_cuando(sentence, strings))
         elif first.lower == "mientras":
             statements.append(_parse_mientras(sentence, strings))
+        elif first.lower in _PLURAL_ARTICLES:
+            statements.append(_parse_plural_binding(sentence, strings))
         elif first.lower in _SINGULAR_ARTICLES:
-            statements.append(_parse_binding_or_decir(sentence, strings))
+            statements.append(_parse_singular_binding(sentence, strings))
         elif _is_hace_imperative(first):
             statements.append(_parse_mutation(sentence, strings))
         else:
