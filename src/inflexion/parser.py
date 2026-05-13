@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión parser — Phase 5.
+"""Inflexión parser — Phase 6.
 
 Recognises these sentence shapes (each terminated by `.` — Phase 5
 additionally treats `...` as a sentence terminator, retained inside the
@@ -18,6 +18,10 @@ sentence as the function-body elision sentinel):
     10. Function definition (Phase 5):     `La función <name>, que toma <params>,
                                             es <body>.`  (body may be `...`)
     11. Vos-imperative w/ clitic-stack:    `Dámelo.` / `Transferíselo.`  (Phase 5)
+    12. Aspect-marked operation (Phase 6):  `Calculó las potencias del N.`
+                                            (perfective, eager) /
+                                            `Calculaba las potencias del N.`
+                                            (imperfective, lazy stream)
 
 Value positions in Phase 5 additionally accept:
     - Function calls: `<verb-infinitive> <arg1> <arg2> ...` where each arg
@@ -38,6 +42,7 @@ Number agreement (paper §3.6, Phase 4 carries into Phase 5):
 from __future__ import annotations
 
 from .ast import (
+    AspectMarkedOperation,
     BinaryOp,
     BindingEstar,
     BindingSer,
@@ -262,9 +267,45 @@ def _parse_list_literal(
     )
 
 
+# Diminutive / augmentative suffixes used by Phase 6 — duplicated here
+# (rather than imported from the interpreter) so the parser stays
+# import-cycle-free. Kept in lockstep with `interpreter._DIMINUTIVE_SUFFIXES`.
+_DIMINUTIVE_SUFFIX_FORMS = (
+    "illa",
+    "illo",
+    "ita",
+    "ito",
+    "ona",
+    "aza",
+    "azo",
+    "ón",
+)
+
+
 def _is_infinitive(tok: Token) -> bool:
     """True if `tok` is morphologically a Spanish infinitive (POS=VERB, VerbForm=Inf)."""
     return tok.pos == "VERB" and "VerbForm=Inf" in tok.morph
+
+
+def _looks_like_diminutive_function_head(tok: Token) -> bool:
+    """True if `tok`'s surface form carries a Phase-6 diminutive / augmentative suffix.
+
+    Used by the function-call parser to accept call heads like
+    `busquito` (cheap variant of `buscar`) or `buscazo` (thorough
+    variant) — spaCy tags them as NOUN / PROPN rather than VERB
+    because they are coinages and not in the model's vocabulary. The
+    runtime is the layer that determines whether the variant resolves;
+    the parser's job is only to recognise the *shape* so the call
+    parses and the runtime can raise a meaningful "variant not
+    registered" error.
+    """
+    surf = tok.lower
+    if tok.is_punct:
+        return False
+    for suffix in _DIMINUTIVE_SUFFIX_FORMS:
+        if surf.endswith(suffix) and len(surf) > len(suffix) + 1:
+            return True
+    return False
 
 
 def _is_arg_starter(tok: Token) -> bool:
@@ -377,6 +418,18 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
     # Function call: a verb in infinitive form heads a positional arg list.
     # Detected at the atom level so it can appear anywhere a value can.
     if _is_infinitive(first):
+        return _parse_function_call(tokens, strings)
+    # Phase 6: a diminutive / augmentative-suffixed token at the head of
+    # what looks like a function call (i.e. followed by at least one
+    # arg-starter) is parsed as a function call so the runtime can
+    # surface the "variant not registered" error. We require an
+    # arg-starter to avoid mis-parsing a bare-identifier read like
+    # `Decí la sumita.` as a zero-arg function call.
+    if (
+        _looks_like_diminutive_function_head(first)
+        and len(tokens) >= 2
+        and _is_arg_starter(tokens[1])
+    ):
         return _parse_function_call(tokens, strings)
     if first.lower in _SINGULAR_ARTICLES or first.lower in _PLURAL_ARTICLES:
         if len(tokens) < 2:
@@ -1050,6 +1103,100 @@ def _is_function_def_opening(sentence: list[Token]) -> bool:
     )
 
 
+# Phase 6 aspect-marker dispatch. Maps the lemma of the marker verb to
+# the set of operations it can drive. Phase 6 wires the canonical
+# `calcular las potencias del N` form from paper §5 Example 2; future
+# phases can extend the table without re-touching the parse shape.
+_ASPECT_MARKER_LEMMAS = {"calcular"}
+_ASPECT_OPERATIONS = {"potencia", "potencias"}
+
+
+def _is_aspect_marker(tok: Token) -> bool:
+    """True if `tok` is a past-tense form of a Phase-6 aspect-marker verb.
+
+    Phase 6 recognises preterite (Tense=Past) → perfective and imperfect
+    (Tense=Imp) → imperfective. Both must combine with the explicit
+    aspect-marker verb lemma (currently only `calcular`) — otherwise
+    a sentence starting with `Calculó` would shadow ordinary
+    past-tense uses of unrelated verbs.
+    """
+    if tok.lemma not in _ASPECT_MARKER_LEMMAS:
+        return False
+    return "Tense=Past" in tok.morph or "Tense=Imp" in tok.morph
+
+
+def _parse_aspect_marked(
+    sentence: list[Token], strings: list[str]
+) -> AspectMarkedOperation:
+    """Parse `<verb-past> <plural-article> <op-noun> del <base>.` (Phase 6).
+
+    Layout (token by token):
+        0. verb form (`calculó` / `calculaba`)
+        1. plural article (`las` / `los`)
+        2. operation noun (`potencias`)
+        3. preposition (`del`, a contraction of `de + el`)
+        4. base expression (1-or-more tokens; Phase 6 supports a single
+           numeric literal or articled-identifier here)
+
+    The aspect is derived from the verb's `Tense` morphology:
+    `Tense=Past` → perfective (eager); `Tense=Imp` → imperfective (lazy).
+    """
+    if len(sentence) < 5:
+        raise InflexionParseError(
+            f"Aspect-marked operation expects "
+            f"`<calculó|calculaba> <art> <op> del <base>`; got "
+            f"{[t.text for t in sentence]}"
+        )
+    verb, art, op_noun, prep, *rest = sentence
+    if art.lower not in _PLURAL_ARTICLES and art.lower not in _SINGULAR_ARTICLES:
+        raise InflexionParseError(
+            f"Aspect-marked operation expects an article after the verb; "
+            f"got {art.text!r}."
+        )
+    if op_noun.lemma not in _ASPECT_OPERATIONS and op_noun.lower not in _ASPECT_OPERATIONS:
+        raise InflexionParseError(
+            f"Phase 6 aspect-marked operations: {sorted(_ASPECT_OPERATIONS)}. "
+            f"Got: {op_noun.text!r}."
+        )
+    if prep.lower not in ("del", "de"):
+        raise InflexionParseError(
+            f"Aspect-marked operation expects `del` (or `de`) before the "
+            f"base; got {prep.text!r}."
+        )
+    # `de el N` (two tokens) would prepend an extra article to `rest`;
+    # `del N` (one ADP token) leaves `rest` starting at the base. Both
+    # are accepted — Spanish convention is the contraction, but the
+    # explicit form is no less grammatical.
+    base_tokens = rest
+    if prep.lower == "de" and base_tokens and base_tokens[0].lower in _SINGULAR_ARTICLES:
+        # Strip the article so `_parse_value` sees just the base token.
+        base_tokens = base_tokens[1:]
+    if not base_tokens:
+        raise InflexionParseError(
+            "Aspect-marked operation is missing its base expression."
+        )
+    base_expr = _parse_value(base_tokens, strings)
+    if "Tense=Imp" in verb.morph:
+        aspect = "imperfective"
+    elif "Tense=Past" in verb.morph:
+        aspect = "perfective"
+    else:  # pragma: no cover - filtered by `_is_aspect_marker`
+        raise InflexionParseError(
+            f"Aspect-marked verb {verb.text!r} has neither perfective "
+            f"nor imperfective tense morphology."
+        )
+    # Normalise operation name to a canonical singular ('potencias' → 'potencia').
+    operation = op_noun.lemma if op_noun.lemma in _ASPECT_OPERATIONS else op_noun.lower
+    if operation == "potencias":
+        operation = "potencia"
+    return AspectMarkedOperation(
+        verb_lemma=verb.lemma,
+        aspect=aspect,
+        operation=operation,
+        base=base_expr,
+    )
+
+
 def parse(tokens: list[Token], strings: list[str]) -> Program:
     """Parse a token stream + string table into a Program."""
     statements: list[Statement] = []
@@ -1063,6 +1210,11 @@ def parse(tokens: list[Token], strings: list[str]) -> Program:
             # Phase 5: function definitions take precedence over the plain
             # singular-binding shape, since both open with `La …`.
             statements.append(_parse_function_def(sentence, strings))
+        elif _is_aspect_marker(first):
+            # Phase 6: top-level aspect-marked operation (eager preterite
+            # or lazy imperfect). The lemma + tense check is strict so
+            # ordinary past-tense uses of unrelated verbs are not captured.
+            statements.append(_parse_aspect_marked(sentence, strings))
         elif first.lower in _PLURAL_ARTICLES:
             statements.append(_parse_plural_binding(sentence, strings))
         elif first.lower in _SINGULAR_ARTICLES:

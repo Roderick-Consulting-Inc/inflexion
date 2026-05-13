@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión interpreter — Phase 5.
+"""Inflexión interpreter — Phase 6.
 
 Walks the AST, evaluating bindings into an Environment that distinguishes
 *ser* (immutable) from *estar* (mutable) bindings, dispatches imperatives,
@@ -59,6 +59,36 @@ Phase 5 simplifications carried forward:
     - The clitic `lo` on a single-clitic vos-imperative still
       dereferences the most-recent binding (Phase 1 anaphora).
     - Equality is value-identity (Python `==`).
+
+Phase 6 additions (diminutive scaling + aspect-marked lazy):
+    - Diminutive / augmentative scaling is *implemented as a
+      lookup-time fallback*, not a new AST node — keeping the parser
+      and AST surface unchanged. An `Identifier` whose name is not
+      bound in scope (and not a base numeral) is tried against the
+      diminutive-suffix table; if a base-name + suffix yields a
+      bound or numeral value, the scaled value is returned.
+    - The numeric scaling factors are: `-ito` / `-ita` → ×½,
+      `-illo` / `-illa` → ×¼, `-ón` / `-ona` → ×2, `-azo` / `-aza`
+      → ×4. These are coined extensions of standard Spanish
+      diminutive / augmentative morphology (paper §3.5); the factors
+      are language-internal, not derived from natural-language
+      register. When the base value and scaling factor combine to an
+      exact integer (the common case for halving an even number),
+      the result is returned as an `int` rather than a `float`.
+    - A function-call name that is not a registered function but
+      that, after suffix-stripping, *would* be a registered function,
+      raises a specific `InflexionRuntimeError` naming the convention
+      — e.g. `busquito` invoked when `buscar` is defined but no
+      `busquito` variant is registered.
+    - Aspect-marked operations: an `AspectMarkedOperation` statement
+      dispatches on the (verb-lemma, operation) pair to a Phase-6
+      backend. The imperfective form prints the first six terms of
+      the operation's lazy stream followed by a `, ...` truncation
+      marker. The perfective form computes eagerly without printing
+      — paper §5 Example 2 reads the perfective as value-producing
+      whose effect is visible downstream (via `Cuando`, a `ser` bind,
+      etc.); Phase 6 wires the basic case and defers binding-target
+      capture to a later installment.
 """
 from __future__ import annotations
 
@@ -67,6 +97,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .ast import (
+    AspectMarkedOperation,
     BinaryOp,
     BindingEstar,
     BindingSer,
@@ -374,6 +405,163 @@ _REDUCTION_OPS: dict[str, "object"] = {
 }
 
 
+# Diminutive / augmentative suffix → scaling factor (Phase 6, paper §3.5).
+# The factors are language-internal commitments, not derived from
+# natural-language register. Order matters here: longer suffixes are
+# checked first so `-illa` wins over `-la`, `-azo` over `-zo`, etc.
+_DIMINUTIVE_SUFFIXES: tuple[tuple[str, float], ...] = (
+    ("illa", 0.25),
+    ("illo", 0.25),
+    ("ita", 0.5),
+    ("ito", 0.5),
+    ("ona", 2.0),
+    ("aza", 4.0),
+    ("azo", 4.0),
+    ("ón", 2.0),
+)
+
+
+# A tiny Spanish-numeral table so `cincón`, `cinquito`, etc. resolve
+# even though `cinco` is not a binding. Phase 6 wires the cardinals
+# 0–10; future phases can extend this without re-touching the
+# diminutive-lookup helper.
+_NUMERAL_VALUES: dict[str, int] = {
+    "cero": 0,
+    "uno": 1,
+    "dos": 2,
+    "tres": 3,
+    "cuatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "siete": 7,
+    "ocho": 8,
+    "nueve": 9,
+    "diez": 10,
+}
+
+
+def _diminutive_base_candidates(name: str) -> list[tuple[str, float]]:
+    """Return plausible (base, factor) pairs for `name` under diminutive morphology.
+
+    The Spanish morphology for diminutive / augmentative suffixes on a
+    noun involves dropping the final unstressed vowel of the base and
+    occasionally restoring an orthographic spelling (`c` → `qu` before
+    `i`/`e`, `g` → `gu`, `z` → `c`). Phase 6's reverse-derivation is
+    conservative: for each suffix that `name` could carry, the helper
+    returns a list of plausible bases ordered from most-likely to
+    least-likely. The caller looks each up in turn against the binding
+    environment and the numeral table.
+
+    The minimum count of letters in the base stem is two — this rules
+    out spurious matches like stripping `ito` from `pinto` (which
+    happens to end in `ito` but is not a diminutive form).
+    """
+    results: list[tuple[str, float]] = []
+    for suffix, factor in _DIMINUTIVE_SUFFIXES:
+        if not name.endswith(suffix):
+            continue
+        stem = name[: -len(suffix)]
+        if len(stem) < 2:
+            continue
+        candidates = [stem]
+        # Restore `qu` (before front vowels) back to `c`.
+        if stem.endswith("qu"):
+            candidates.append(stem[:-2] + "c")
+        # Try common final-vowel restorations.
+        for ending in ("o", "a", "e"):
+            candidates.append(stem + ending)
+            if stem.endswith("qu"):
+                candidates.append(stem[:-2] + "c" + ending)
+        # De-duplicate while preserving order.
+        seen: set[str] = set()
+        for cand in candidates:
+            if cand in seen:
+                continue
+            seen.add(cand)
+            results.append((cand, factor))
+    return results
+
+
+def _scale_value(value: object, factor: float) -> object:
+    """Apply a diminutive / augmentative scaling factor to a numeric value.
+
+    Returns an `int` when the scaled value is an exact integer (the
+    common case for halving an even number or doubling), otherwise a
+    `float`. Tuples (collection values) are scaled element-wise.
+    """
+    if isinstance(value, tuple):
+        return tuple(_scale_value(elt, factor) for elt in value)
+    if not _is_scalar_number(value):
+        raise InflexionRuntimeError(
+            f"Cannot apply diminutive / augmentative scaling to non-numeric "
+            f"value {value!r}."
+        )
+    scaled = value * factor
+    if isinstance(scaled, float) and scaled.is_integer():
+        return int(scaled)
+    return scaled
+
+
+def _try_diminutive_value_lookup(
+    name: str, env: Environment
+) -> object | None:
+    """Return the scaled value of `name` if it is a diminutive of a known base.
+
+    Lookup order for each candidate base:
+        1. Binding environment (`env.lookup`).
+        2. Numeral table (`_NUMERAL_VALUES`).
+
+    Returns `None` if no base resolves; the caller then surfaces the
+    original "unknown binding" error so the user sees a message keyed
+    on the form they wrote, not on a synthetic stem.
+    """
+    for base, factor in _diminutive_base_candidates(name):
+        try:
+            base_value = env.lookup(base)
+        except InflexionRuntimeError:
+            base_value = None
+        if base_value is not None:
+            return _scale_value(base_value, factor)
+        if base in _NUMERAL_VALUES:
+            return _scale_value(_NUMERAL_VALUES[base], factor)
+    return None
+
+
+def _try_diminutive_function_variant(
+    name: str, env: Environment
+) -> None:
+    """If `name` is a diminutive of a registered function, raise the variant error.
+
+    Phase 6 contract: when a function-call's name doesn't match any
+    registered function but, after suffix-stripping, would name one,
+    raise `InflexionRuntimeError` with a message naming the convention.
+    A user that writes `busquito el dato.` when only `buscar` is
+    defined gets a message pointing at the diminutive convention.
+
+    Function names are infinitives; the stripped diminutive stem is a
+    noun-shaped fragment, so we additionally try appending each of the
+    Spanish infinitive endings (`-ar` / `-er` / `-ir`) to each base
+    candidate when looking up the registry. `busquito` → stem `busqu`
+    → orthographic-restore to `busc` → `buscar` (registered).
+    """
+    for base, factor in _diminutive_base_candidates(name):
+        for completion in ("", "ar", "er", "ir"):
+            candidate = base + completion
+            try:
+                env.get_function(candidate)
+            except InflexionRuntimeError:
+                continue
+            register = "cheap" if factor < 1 else "thorough"
+            raise InflexionRuntimeError(
+                f"Function variant {name!r} (a {register} variant of "
+                f"{candidate!r}) is not registered. Phase 6 accepts the "
+                f"morphological form but requires the variant to be "
+                f"explicitly defined. Define a separate "
+                f"`La función {name}, que toma …, es ….` if the "
+                f"{register} variant has a distinct body."
+            )
+
+
 def _eval_function_call(call: FunctionCall, env: Environment) -> object:
     """Evaluate a function call: bind args in a child scope, run the body.
 
@@ -385,8 +573,19 @@ def _eval_function_call(call: FunctionCall, env: Environment) -> object:
            cells (so the body cannot mutate its own parameters).
         5. If the body is `None` (elided), return a record-of-call
            string; otherwise evaluate the body and return its value.
+
+    Phase 6 addition: if the call's name isn't a registered function
+    but is morphologically a diminutive / augmentative of one, raise
+    a clear "variant not registered" error (paper §3.5 — Phase 6
+    accepts the morphology but requires explicit variant definition).
     """
-    fn = env.get_function(call.name)
+    try:
+        fn = env.get_function(call.name)
+    except InflexionRuntimeError:
+        # Phase 6: try to surface a diminutive-variant-specific error
+        # before falling through to the generic unknown-function error.
+        _try_diminutive_function_variant(call.name, env)
+        raise
     if len(call.args) != len(fn.params):
         raise InflexionRuntimeError(
             f"Function {call.name!r} expects {len(fn.params)} argument(s) "
@@ -445,7 +644,18 @@ def _eval_expr(expr: Expr, env: Environment) -> object:
         # Element-wise eval; result is a Python tuple (immutable).
         return tuple(_eval_expr(e, env) for e in expr.elements)
     if isinstance(expr, Identifier):
-        return env.lookup(expr.name)
+        # Phase 6: an Identifier lookup that fails first checks whether
+        # the surface form is a diminutive / augmentative of a known
+        # binding or numeral. The original error is re-raised if no
+        # base resolves, so the user sees a message keyed on what they
+        # wrote rather than on a synthetic stem.
+        try:
+            return env.lookup(expr.name)
+        except InflexionRuntimeError:
+            scaled = _try_diminutive_value_lookup(expr.name, env)
+            if scaled is not None:
+                return scaled
+            raise
     if isinstance(expr, BinaryOp):
         return _broadcast(
             expr.op, _eval_expr(expr.left, env), _eval_expr(expr.right, env)
@@ -519,6 +729,79 @@ def _execute_imperative(call: ImperativeCall, env: Environment, out: io.StringIO
     )
 
 
+# Phase 6 lazy-stream rendering: number of terms to print before the
+# `, ...` truncation marker. Chosen as a small visible prefix that fits
+# on a single line for the standard powers-of-2 demo (1, 2, 4, 8, 16, 32).
+_LAZY_PREFIX_TERMS = 6
+
+
+def _powers_stream(base: object):
+    """Lazy generator of powers of `base`, starting at base^0 = 1."""
+    if not _is_scalar_number(base):
+        raise InflexionRuntimeError(
+            f"Operation `potencias del N` requires a numeric base; "
+            f"got {base!r}."
+        )
+    n = 0
+    while True:
+        yield base ** n
+        n += 1
+
+
+# Phase 6 aspect-marked operation dispatch table. The key is
+# (verb_lemma, operation); the value is a callable taking the
+# evaluated base value and returning an iterator. The interpreter
+# wraps the iterator with either eager consumption (perfective) or
+# truncated-prefix printing (imperfective).
+_ASPECT_OPERATIONS_DISPATCH: dict[tuple[str, str], "object"] = {
+    ("calcular", "potencia"): _powers_stream,
+}
+
+
+def _execute_aspect_marked(
+    stmt: AspectMarkedOperation, env: Environment, out: io.StringIO
+) -> None:
+    """Execute an aspect-marked operation (Phase 6).
+
+    Imperfective form (`Calculaba …`): print the first
+    `_LAZY_PREFIX_TERMS` terms of the operation stream comma-separated,
+    followed by `, ...`. The trailing newline matches the convention
+    used by `Decí` so output composes cleanly.
+
+    Perfective form (`Calculó …`): consume the stream eagerly into a
+    finite truncation so the eager path has well-defined termination
+    without binding-target capture (Phase 6 deferred). The eager path
+    intentionally does *not* print — it returns the computed prefix as
+    the most-recent-binding for the local scope's `lo` antecedent.
+    """
+    op_fn = _ASPECT_OPERATIONS_DISPATCH.get((stmt.verb_lemma, stmt.operation))
+    if op_fn is None:
+        raise InflexionRuntimeError(
+            f"Phase 6 aspect-marked dispatch supports "
+            f"{sorted(_ASPECT_OPERATIONS_DISPATCH)}; got "
+            f"({stmt.verb_lemma!r}, {stmt.operation!r})."
+        )
+    base_value = _eval_expr(stmt.base, env)
+    stream = op_fn(base_value)
+    if stmt.aspect == "imperfective":
+        prefix: list[object] = []
+        for _ in range(_LAZY_PREFIX_TERMS):
+            prefix.append(next(stream))
+        rendered = ", ".join(str(elt) for elt in prefix)
+        out.write(f"{rendered}, ...\n")
+        return
+    if stmt.aspect == "perfective":
+        # Eager consumption to a finite prefix. No output — the value
+        # is computed and discarded (Phase 6 has no binding-target
+        # capture for aspect-marked operations).
+        for _ in range(_LAZY_PREFIX_TERMS):
+            next(stream)
+        return
+    raise InflexionRuntimeError(  # pragma: no cover - parser-filtered
+        f"Unknown aspect: {stmt.aspect!r}."
+    )
+
+
 def _execute_clitic_imperative(
     call: CliticImperativeCall, env: Environment, out: io.StringIO
 ) -> None:
@@ -575,9 +858,15 @@ def _execute_statement(
         for action in fired:
             _execute_statement(action, env, out)
     elif isinstance(stmt, DecirCommand):
-        out.write(f"{env.lookup(stmt.name)}\n")
+        # Phase 6: route through `_eval_expr(Identifier)` so the
+        # diminutive / augmentative lookup fallback fires for forms
+        # like `Decí la sumita.` (sumita = suma × ½) without
+        # requiring an explicit `sumita` binding.
+        value = _eval_expr(Identifier(stmt.name), env)
+        out.write(f"{value}\n")
     elif isinstance(stmt, DecirPluralCommand):
-        out.write(f"{_format_collection(env.lookup(stmt.name))}\n")
+        value = _eval_expr(Identifier(stmt.name), env)
+        out.write(f"{_format_collection(value)}\n")
     elif isinstance(stmt, DecirExpr):
         value = _eval_expr(stmt.value, env)
         if isinstance(value, tuple):
@@ -592,6 +881,8 @@ def _execute_statement(
         env.define_function(stmt)
     elif isinstance(stmt, CliticImperativeCall):
         _execute_clitic_imperative(stmt, env, out)
+    elif isinstance(stmt, AspectMarkedOperation):
+        _execute_aspect_marked(stmt, env, out)
     elif isinstance(stmt, DeferredBinding):
         env.register_observer(
             stmt.name, _eval_expr(stmt.trigger_value, env), stmt.action

@@ -52,8 +52,17 @@ Phase 5 adds (function abstraction + clitic argument routing + reduction):
     - Reduction: fold a collection to a scalar
       (`el resultado de sumar los X`, paper §5 Example 4 line 4).
 
-Phase 6+ will add diminutive / augmentative scaling and aspect-marked
-lazy evaluation.
+Phase 6 adds (diminutive / augmentative scaling + aspect-marked lazy):
+    - AspectMarkedOperation: top-level aspect-marked verb call
+      (`Calculó las potencias del N` eager, `Calculaba las potencias
+      del N` lazy). Phase 6 wires the `calcular las potencias del N`
+      operation; future phases will extend the dispatch table.
+    - Diminutive / augmentative morphology is *not* a new AST node — it
+      is a lookup-time fallback in the interpreter (an `Identifier`
+      lookup that fails first tries the diminutive-base candidates;
+      a `FunctionCall` to an unknown name tries the diminutive-base
+      candidates before raising). Keeping it lookup-time means existing
+      AST nodes and parser shapes stay unchanged.
 """
 from __future__ import annotations
 
@@ -298,6 +307,39 @@ class FunctionDef:
 
 
 @dataclass(frozen=True)
+class AspectMarkedOperation:
+    """Aspect-marked top-level verb call (Phase 6, paper §3.3 + §5 Ex 2).
+
+    Surface form: `<verb-past-tense> <plural-article> <operation-noun>
+    del <base-expr>.`, where the verb's tense (preterite vs imperfect)
+    selects aspect:
+
+        - `Calculó las potencias del 2`   →  perfective, eager
+        - `Calculaba las potencias del 2` →  imperfective, lazy stream
+
+    `verb_lemma` is the dictionary form of the marker verb
+    (Phase 6: `calcular`). `aspect` is one of `"perfective"` /
+    `"imperfective"`. `operation` is the name of the operation invoked
+    (Phase 6: `"potencias"`). `base` is the expression that parameterises
+    the operation (e.g. `IntLit(2)`).
+
+    Phase 6 semantics:
+        - Imperfective form prints the first six terms of the operation
+          stream followed by a truncation marker (`, ...`).
+        - Perfective form computes the value eagerly but, in the
+          absence of a binding-target, does *not* print — matching
+          paper §5 Example 2's reading where the perfective form is
+          a value-yielding action whose effect is visible elsewhere
+          (e.g. via a `Cuando` observer on a related cell).
+    """
+
+    verb_lemma: str
+    aspect: str
+    operation: str
+    base: "Expr"
+
+
+@dataclass(frozen=True)
 class CliticImperativeCall:
     """Vos-imperative with a clitic stack of one or more clitics (Phase 5).
 
@@ -402,6 +444,7 @@ Statement = Union[
     WhileLoop,
     FunctionDef,
     CliticImperativeCall,
+    AspectMarkedOperation,
 ]
 
 

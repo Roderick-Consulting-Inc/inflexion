@@ -6,8 +6,9 @@ Public API (stable since Phase 1):
       returning captured stdout.
     - run_file(path: str | Path) -> str: same, reading from a `.infl` file.
 
-The phase history is documented in each module's docstring; v0.0.6
-corresponds to Phase 5 (function defs, clitic stacks, reductions).
+The phase history is documented in each module's docstring; v0.0.7
+corresponds to Phase 6 (diminutive scaling + aspect-marked lazy),
+which closes the six-mapping curriculum of paper §3.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from .interpreter import Environment, run as _run_program
 from .lexer import lex
 from .parser import parse
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 __all__ = ["run_source", "run_file", "__version__"]
 
