@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión parser — Phase 2.
+"""Inflexión parser — Phase 3a.
 
 Recognises these sentence shapes (each terminated by `.`):
 
@@ -8,13 +8,15 @@ Recognises these sentence shapes (each terminated by `.`):
     3. Mutation:                 `Hacé que el <noun> esté en <value>.`
     4. Decí read-and-print:      `Decí el <noun>.`
     5. Vos-imperative w/ clitic: `Decilo.`  (Phase 1 single-clitic form)
+    6. Subjunctive deferred:     `Cuando el <noun> esté en <value>, <imperative>.`
+                                  (Phase 3a — registers a one-shot observer)
 
 Value positions accept string-literal placeholders, integer literals, or
 identifiers. Anything else raises SyntaxError.
 
 Clitic detection: spaCy's es_core_news_sm does not always split enclitic
 pronouns off the verb, so we apply a manual suffix-strip pass over the known
-single-clitic set for tokens that look like verb forms. Phase 2 still supports
+single-clitic set for tokens that look like verb forms. Phase 3a still supports
 only a single enclitic on the Phase 1 imperative path.
 """
 from __future__ import annotations
@@ -23,6 +25,8 @@ from .ast import (
     BindingEstar,
     BindingSer,
     DecirCommand,
+    DecirLiteral,
+    DeferredBinding,
     Expr,
     Identifier,
     ImperativeCall,
@@ -177,43 +181,53 @@ def _parse_mutation(sentence: list[Token], strings: list[str]) -> MutationComman
     return MutationCommand(name=noun.lower, value=_value_from_token(value, strings))
 
 
-def _parse_decir(sentence: list[Token], strings: list[str]) -> Statement:
-    """Parse a sentence starting with a vos-imperative.
+def _parse_imperative_tokens(
+    tokens: list[Token], strings: list[str]
+) -> Statement:
+    """Parse a contiguous run of tokens forming a single imperative clause.
 
-    Recognised shapes:
-        - `Decí <article> <noun>`  -> DecirCommand (Phase 2 full-NP form)
-        - `Decilo` / `Decila` / …  -> ImperativeCall (Phase 1 enclitic form)
-
-    Phase 2 still rejects any other imperative verb.
+    Recognised shapes (used both at top level and as the action of a
+    `Cuando ..., <imperative>` deferred binding):
+        - `Decí <article> <noun>`     -> DecirCommand   (binding name)
+        - `Decí <string-literal>`     -> DecirLiteral   (direct print)
+        - `Decilo` / `Decila` / …     -> ImperativeCall (enclitic form)
     """
-    first = sentence[0]
+    if not tokens:
+        raise SyntaxError("Empty imperative clause.")
+    first = tokens[0]
     surface = first.lower
 
-    # Phase 2 full-NP form: `Decí <article> <noun>`
+    # `Decí` followed by an object — full-NP form or string-literal form.
     if surface in _VOS_IMPERATIVE_LEMMAS and _VOS_IMPERATIVE_LEMMAS[surface] == "decir":
-        if len(sentence) == 1:
+        if len(tokens) == 1:
             raise InflexionParseError(
                 "`Decí` without an object is not supported; either name a "
-                "binding (`Decí el saludo`) or use the enclitic form `Decilo`."
+                "binding (`Decí el saludo`), pass a string literal "
+                "(`Decí \"hola\"`), or use the enclitic form `Decilo`."
             )
-        if len(sentence) != 3:
-            raise SyntaxError(
-                f"Phase 2 `Decí` expects `Decí <article> <noun>`; got "
-                f"{[t.text for t in sentence]}"
-            )
-        article, noun = sentence[1], sentence[2]
-        if article.lower not in _SINGULAR_ARTICLES:
-            raise SyntaxError(
-                f"Expected singular article after `Decí`, got {article.text!r}"
-            )
-        return DecirCommand(name=noun.lower)
+        # `Decí "<text>"` — direct string-literal print.
+        if len(tokens) == 2 and tokens[1].is_string_placeholder:
+            return DecirLiteral(value=StringLit(strings[tokens[1].placeholder_index]))
+        # `Decí <article> <noun>` — read-and-print a binding.
+        if len(tokens) == 3:
+            article, noun = tokens[1], tokens[2]
+            if article.lower not in _SINGULAR_ARTICLES:
+                raise SyntaxError(
+                    f"Expected singular article or string literal after "
+                    f"`Decí`, got {article.text!r}"
+                )
+            return DecirCommand(name=noun.lower)
+        raise SyntaxError(
+            f"`Decí` expects `Decí <article> <noun>` or `Decí \"<text>\"`; got "
+            f"{[t.text for t in tokens]}"
+        )
 
     # Phase 1 enclitic form: `Decilo`, etc. — must be a single token.
-    if len(sentence) != 1:
+    if len(tokens) != 1:
         raise SyntaxError(
-            f"Imperative sentence must be either `Decí <article> <noun>` or "
-            f"a single enclitic form like `Decilo`; got "
-            f"{[t.text for t in sentence]}"
+            f"Imperative clause must be `Decí <article> <noun>`, "
+            f"`Decí \"<text>\"`, or a single enclitic form like `Decilo`; "
+            f"got {[t.text for t in tokens]}"
         )
     bare, clitic = _strip_clitic(surface)
     if bare in _VOS_IMPERATIVE_LEMMAS:
@@ -221,8 +235,61 @@ def _parse_decir(sentence: list[Token], strings: list[str]) -> Statement:
             verb_lemma=_VOS_IMPERATIVE_LEMMAS[bare], clitic=clitic
         )
     raise SyntaxError(
-        f"Unrecognised imperative form {first.text!r}. Phase 2 supports "
+        f"Unrecognised imperative form {first.text!r}. Phase 3a supports "
         f"vos-imperatives of: {sorted(set(_VOS_IMPERATIVE_LEMMAS.values()))}"
+    )
+
+
+def _parse_decir(sentence: list[Token], strings: list[str]) -> Statement:
+    """Parse a top-level imperative sentence."""
+    return _parse_imperative_tokens(sentence, strings)
+
+
+def _parse_cuando(sentence: list[Token], strings: list[str]) -> DeferredBinding:
+    """Parse `Cuando el <noun> esté en <value>, <imperative>` into a DeferredBinding.
+
+    Layout (head before comma): [cuando, article, noun, esté, en, value, ',', ...tail]
+    """
+    # Locate the comma — required separator between condition and action.
+    comma_idx: int | None = None
+    for i, tok in enumerate(sentence):
+        if tok.text == ",":
+            comma_idx = i
+            break
+    if comma_idx is None:
+        raise SyntaxError(
+            "`Cuando` clause requires a comma before the imperative action; "
+            f"got {[t.text for t in sentence]}"
+        )
+    head = sentence[:comma_idx]
+    tail = sentence[comma_idx + 1 :]
+    if len(head) != 6:
+        raise SyntaxError(
+            "Phase 3a `Cuando` head expects `Cuando <article> <noun> esté en "
+            f"<value>`; got {[t.text for t in head]}"
+        )
+    cuando, article, noun, este, en, value = head
+    if cuando.lower != "cuando":
+        raise SyntaxError(f"Expected `Cuando`, got {cuando.text!r}")
+    if article.lower not in _SINGULAR_ARTICLES:
+        raise SyntaxError(
+            f"Expected singular article in `Cuando` clause, got {article.text!r}"
+        )
+    if not _is_estar_subjunctive(este):
+        raise SyntaxError(
+            f"Expected subjunctive `esté` in `Cuando` clause, got {este.text!r}"
+        )
+    if en.lower != "en":
+        raise SyntaxError(
+            f"Expected `en` before the trigger value, got {en.text!r}"
+        )
+    if not tail:
+        raise SyntaxError("`Cuando` clause is missing its imperative action.")
+    action = _parse_imperative_tokens(tail, strings)
+    return DeferredBinding(
+        name=noun.lower,
+        trigger_value=_value_from_token(value, strings),
+        action=action,
     )
 
 
@@ -235,7 +302,9 @@ def parse(tokens: list[Token], strings: list[str]) -> Program:
     statements: list[Statement] = []
     for sentence in _split_sentences(tokens):
         first = sentence[0]
-        if first.lower in _SINGULAR_ARTICLES:
+        if first.lower == "cuando":
+            statements.append(_parse_cuando(sentence, strings))
+        elif first.lower in _SINGULAR_ARTICLES:
             statements.append(_parse_binding_or_decir(sentence, strings))
         elif _is_hace_imperative(first):
             statements.append(_parse_mutation(sentence, strings))

@@ -1,14 +1,18 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión AST — Phase 2 node types.
+"""Inflexión AST — Phase 3a node types.
 
-Phase 2 adds:
+Phase 2 added:
     - BindingEstar: mutable binding via *estar* (El X está en Y)
     - MutationCommand: imperative mutation (Hacé que el X esté en Y)
     - IntLit: integer numeric literal
     - DecirCommand: vos-imperative `Decí <noun-phrase>` reading by name
       (the Phase 1 `Decilo` enclitic form remains an ImperativeCall)
 
-Phase 3+ will add SubjunctiveDeferred, MientrasLoop, FunctionDef, ListLit, etc.
+Phase 3a adds:
+    - DeferredBinding: subjunctive deferred observer
+      (`Cuando el X esté en Y, <imperative>`)
+
+Phase 3b+ will add MientrasLoop, arithmetic, FunctionDef, ListLit, etc.
 """
 from __future__ import annotations
 
@@ -86,6 +90,18 @@ class DecirCommand:
 
 
 @dataclass(frozen=True)
+class DecirLiteral:
+    """Imperative print of a string literal: `Decí "<text>".`
+
+    Phase 3a addition, motivated by §5 Example 2's `decí "listo"` clause.
+    Distinct from `DecirCommand` (which names a binding) and
+    `ImperativeCall` (which carries an enclitic).
+    """
+
+    value: StringLit
+
+
+@dataclass(frozen=True)
 class ImperativeCall:
     """A vos-imperative verb (optionally with a single enclitic clitic).
 
@@ -98,7 +114,35 @@ class ImperativeCall:
     clitic: str | None
 
 
-Statement = Union[BindingSer, BindingEstar, MutationCommand, DecirCommand, ImperativeCall]
+@dataclass(frozen=True)
+class DeferredBinding:
+    """Subjunctive deferred binding: `Cuando el <name> esté en <trigger>, <action>.`
+
+    Registers a one-shot observer on the mutable cell `name`: when a
+    subsequent mutation sets `name`'s value equal to `trigger_value`, the
+    nested `action` (an imperative statement — `DecirCommand` or
+    `ImperativeCall` in Phase 3a) fires exactly once and the observer is
+    removed.
+
+    The subjunctive *esté* is the grammatical carrier of the deferral
+    (white-paper §3.2): the action is hypothetical until the trigger is
+    realised, mirroring Spanish mood semantics.
+    """
+
+    name: str
+    trigger_value: "Expr"
+    action: "Statement"
+
+
+Statement = Union[
+    BindingSer,
+    BindingEstar,
+    MutationCommand,
+    DecirCommand,
+    DecirLiteral,
+    ImperativeCall,
+    DeferredBinding,
+]
 
 
 @dataclass(frozen=True)
