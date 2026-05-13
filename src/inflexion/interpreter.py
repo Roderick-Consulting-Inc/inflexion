@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión interpreter — Phase 4.
+"""Inflexión interpreter — Phase 5.
 
 Walks the AST, evaluating bindings into an Environment that distinguishes
 *ser* (immutable) from *estar* (mutable) bindings, dispatches imperatives,
@@ -32,13 +32,33 @@ Phase 4 additions (number agreement → scalar / collection):
       choice: Python-list repr (e.g. `[90.0, 180.0, 270.0, 360.0]`) plus
       a trailing newline. Documented in `_format_collection`.
 
-Phase 4 simplifications retained from Phase 3b:
-    - The clitic `lo` on a vos-imperative still dereferences the most-recent
-      binding (Phase 1 anaphora).
-    - The only imperative verbs wired up are `decir` (print) and `hacer`
-      (the mutation marker `Hacé que ...`).
+Phase 5 additions (function abstraction + clitic routing + reduction):
+    - Function definitions register a `FunctionDef` in the environment's
+      function registry (always stored at the root of the scope chain).
+      Names are first-class in their own namespace, distinct from
+      ser/estar bindings, so a function can share a name with a binding
+      without collision (in practice we recommend against it).
+    - Function calls (`FunctionCall`) evaluate args in the *calling*
+      scope, then push a child scope with the formal parameters bound
+      as fresh *ser* cells, evaluate the body, and discard the scope.
+      Calling an elided-body function (body is `None`) produces a
+      record-of-call string `"<name>(<arg1>, <arg2>, …)"` — the Phase 5
+      contract; full semantics for elided bodies arrives with the
+      ops-sem installment.
+    - Clitic-stack imperatives (`CliticImperativeCall`) look up the verb
+      lemma in the function registry. For Phase 5 the call is
+      side-effecting: it prints a record line capturing the routing
+      `"<verb>(<clitic1>, <clitic2>, …)"` to stdout. Phase 5 does not
+      yet bind clitic values; that lands with the ops-sem paper.
+    - Reductions (`Reduction`) evaluate the target to a collection and
+      fold it under a dispatch-table-resolved op. `sumar` → built-in
+      `sum`; other ops can be added by extending `_REDUCTION_OPS`
+      without re-touching the parse shape.
+
+Phase 5 simplifications carried forward:
+    - The clitic `lo` on a single-clitic vos-imperative still
+      dereferences the most-recent binding (Phase 1 anaphora).
     - Equality is value-identity (Python `==`).
-    - Arithmetic comparisons other than equality are deferred.
 """
 from __future__ import annotations
 
@@ -51,6 +71,7 @@ from .ast import (
     BindingEstar,
     BindingSer,
     BindingSerPlural,
+    CliticImperativeCall,
     Condition,
     DecirCommand,
     DecirExpr,
@@ -60,6 +81,8 @@ from .ast import (
     EstaCondition,
     Expr,
     FloatLit,
+    FunctionCall,
+    FunctionDef,
     Identifier,
     ImperativeCall,
     IntLit,
@@ -67,6 +90,7 @@ from .ast import (
     MutationCommand,
     NegatedCondition,
     Program,
+    Reduction,
     Statement,
     StringLit,
     WhileLoop,
@@ -112,11 +136,27 @@ class Environment:
     clauses. `mutate` consults the registry after writing the cell and
     returns the list of actions whose triggers fired so the run loop can
     execute them. Each fired observer is removed (one-shot).
+
+    Phase 5 adds:
+        - `parent`: optional parent scope for lexical lookup. A function
+          call pushes a child whose `parent` points back at the call
+          site's scope, so the body can see outer bindings while keeping
+          its own parameter bindings local. Mutations and observer
+          registrations always target the *local* scope and raise if the
+          name is not bound locally — outer-scope mutation is not
+          supported in Phase 5.
+        - `functions`: a per-root function registry. All `define_function`
+          / `get_function` operations walk to the root of the parent
+          chain, so functions are effectively top-level even when defined
+          inside a child scope (Phase 5 forbids the latter at the parse
+          shape, but the runtime is permissive).
     """
 
     cells: dict[str, _Cell] = field(default_factory=dict)
     binding_order: list[str] = field(default_factory=list)
     deferred: dict[str, list[tuple[object, "Statement"]]] = field(default_factory=dict)
+    parent: "Environment | None" = None
+    functions: dict[str, FunctionDef] = field(default_factory=dict)
 
     def bind_ser(self, name: str, value: object) -> None:
         if name in self.cells:
@@ -188,16 +228,63 @@ class Environment:
         self.deferred.setdefault(name, []).append((trigger_value, action))
 
     def lookup(self, name: str) -> object:
-        if name not in self.cells:
-            raise InflexionRuntimeError(f"Unknown binding: {name!r}")
-        return self.cells[name].value
+        """Look up `name` locally, then walk the parent chain (Phase 5)."""
+        if name in self.cells:
+            return self.cells[name].value
+        if self.parent is not None:
+            return self.parent.lookup(name)
+        raise InflexionRuntimeError(f"Unknown binding: {name!r}")
 
     def most_recent(self) -> object:
-        if not self.binding_order:
+        """Most-recent binding in the *local* scope (Phase 1 anaphora).
+
+        Walks to parent scopes if the local scope has none — a Phase 5
+        consideration so that `Decilo` after a function call still
+        dereferences the caller's most-recent binding rather than failing.
+        """
+        if self.binding_order:
+            return self.cells[self.binding_order[-1]].value
+        if self.parent is not None:
+            return self.parent.most_recent()
+        raise InflexionRuntimeError(
+            "Clitic `lo` has no antecedent: no bindings in scope."
+        )
+
+    def _root(self) -> "Environment":
+        """Walk to the root of the parent chain (where functions live)."""
+        env = self
+        while env.parent is not None:
+            env = env.parent
+        return env
+
+    def define_function(self, fn: FunctionDef) -> None:
+        """Register a function in the root scope's function registry.
+
+        Phase 5: redefinition of an existing function is a runtime error,
+        matching the immutability discipline of *ser* bindings — the
+        relative-clause function-def syntax is the *ser* / function
+        analogue.
+        """
+        root = self._root()
+        if fn.name in root.functions:
             raise InflexionRuntimeError(
-                "Clitic `lo` has no antecedent: no bindings in scope."
+                f"Cannot redefine function {fn.name!r}: already defined."
             )
-        return self.cells[self.binding_order[-1]].value
+        root.functions[fn.name] = fn
+
+    def get_function(self, name: str) -> FunctionDef:
+        """Look up a function by name in the root scope's registry."""
+        root = self._root()
+        if name not in root.functions:
+            raise InflexionRuntimeError(
+                f"Unknown function: {name!r}. Define it with "
+                f"`La función {name}, que toma …, es ….`."
+            )
+        return root.functions[name]
+
+    def child_scope(self) -> "Environment":
+        """Construct a fresh child scope rooted at this env (Phase 5)."""
+        return Environment(parent=self)
 
 
 def _is_scalar_number(value: object) -> bool:
@@ -277,6 +364,76 @@ def _broadcast(op: str, left: object, right: object) -> object:
     return _apply_scalar(op, left, right)
 
 
+# Reduction dispatch table (Phase 5). Maps a verb-infinitive surface form
+# to a Python callable that takes a tuple-of-numbers and returns the
+# folded scalar. Wiring `sumar` is the Phase 5 minimum; other ops
+# (`multiplicar`, `promediar`, etc.) can land later without re-touching
+# the parser.
+_REDUCTION_OPS: dict[str, "object"] = {
+    "sumar": sum,
+}
+
+
+def _eval_function_call(call: FunctionCall, env: Environment) -> object:
+    """Evaluate a function call: bind args in a child scope, run the body.
+
+    Phase 5 evaluation order:
+        1. Look up the function by name (raises if unknown).
+        2. Verify arg-count == param-count (raises on mismatch).
+        3. Evaluate each arg in the *calling* scope.
+        4. Push a child scope, bind formal parameters as fresh *ser*
+           cells (so the body cannot mutate its own parameters).
+        5. If the body is `None` (elided), return a record-of-call
+           string; otherwise evaluate the body and return its value.
+    """
+    fn = env.get_function(call.name)
+    if len(call.args) != len(fn.params):
+        raise InflexionRuntimeError(
+            f"Function {call.name!r} expects {len(fn.params)} argument(s) "
+            f"({', '.join(fn.params) or '(none)'}); got {len(call.args)}."
+        )
+    arg_values = [_eval_expr(a, env) for a in call.args]
+    if fn.body is None:
+        # Elided body — Phase 5 contract is a record-of-call string. The
+        # caller may print it via `Decí` or discard it.
+        rendered = ", ".join(_render_record_value(v) for v in arg_values)
+        return f"{fn.name}({rendered})"
+    scope = env.child_scope()
+    for name, value in zip(fn.params, arg_values):
+        scope.bind_ser(name, value)
+    return _eval_expr(fn.body, scope)
+
+
+def _render_record_value(value: object) -> str:
+    """Render an arg value inside a record-of-call string.
+
+    Tuples are rendered with the same Python-list-repr shape that
+    `_format_collection` produces, so the record line round-trips
+    cleanly when the user pipes it to `Decí`.
+    """
+    if isinstance(value, tuple):
+        inner = ", ".join(repr(elt) for elt in value)
+        return f"[{inner}]"
+    return repr(value) if isinstance(value, str) else str(value)
+
+
+def _eval_reduction(red: Reduction, env: Environment) -> object:
+    """Evaluate `el resultado de <op> los X` by folding the target collection."""
+    op_fn = _REDUCTION_OPS.get(red.op)
+    if op_fn is None:
+        raise InflexionRuntimeError(
+            f"Phase 5 supports reduction operators: "
+            f"{sorted(_REDUCTION_OPS)}. Got: {red.op!r}."
+        )
+    target_value = _eval_expr(red.target, env)
+    if not isinstance(target_value, tuple):
+        raise InflexionRuntimeError(
+            f"Reduction `el resultado de {red.op} …` requires a collection "
+            f"target; got scalar {target_value!r}."
+        )
+    return op_fn(target_value)
+
+
 def _eval_expr(expr: Expr, env: Environment) -> object:
     if isinstance(expr, StringLit):
         return expr.value
@@ -293,6 +450,10 @@ def _eval_expr(expr: Expr, env: Environment) -> object:
         return _broadcast(
             expr.op, _eval_expr(expr.left, env), _eval_expr(expr.right, env)
         )
+    if isinstance(expr, FunctionCall):
+        return _eval_function_call(expr, env)
+    if isinstance(expr, Reduction):
+        return _eval_reduction(expr, env)
     raise InflexionRuntimeError(f"Unsupported expression: {expr!r}")
 
 
@@ -358,6 +519,33 @@ def _execute_imperative(call: ImperativeCall, env: Environment, out: io.StringIO
     )
 
 
+def _execute_clitic_imperative(
+    call: CliticImperativeCall, env: Environment, out: io.StringIO
+) -> None:
+    """Execute a vos-imperative carrying a clitic stack (Phase 5).
+
+    The verb name is looked up in the function registry. For Phase 5 the
+    semantics is a record-of-call line written to stdout, capturing the
+    routing through the clitic positions. The line is of the form
+    `<verb>(<clitic1>, <clitic2>, …)` with the clitics in fixed Spanish
+    order.
+
+    An unknown verb raises a clear error pointing the user at the
+    function-definition syntax — the most common cause of the failure.
+    """
+    fn = env.get_function(call.verb_lemma)
+    rendered_clitics = ", ".join(call.clitics)
+    if fn.body is None:
+        # Elided body (Phase 5 contract): record-of-call side effect.
+        out.write(f"{fn.name}({rendered_clitics})\n")
+        return
+    # Defined body but no value bindings yet for the clitic positions —
+    # Phase 5 stops at logging the call shape; full positional routing
+    # arrives with the ops-sem paper. We still print the record so the
+    # call is observable.
+    out.write(f"{fn.name}({rendered_clitics})\n")
+
+
 def _execute_statement(
     stmt: Statement, env: Environment, out: io.StringIO
 ) -> None:
@@ -400,6 +588,10 @@ def _execute_statement(
         out.write(f"{stmt.value.value}\n")
     elif isinstance(stmt, ImperativeCall):
         _execute_imperative(stmt, env, out)
+    elif isinstance(stmt, FunctionDef):
+        env.define_function(stmt)
+    elif isinstance(stmt, CliticImperativeCall):
+        _execute_clitic_imperative(stmt, env, out)
     elif isinstance(stmt, DeferredBinding):
         env.register_observer(
             stmt.name, _eval_expr(stmt.trigger_value, env), stmt.action

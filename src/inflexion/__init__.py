@@ -1,10 +1,13 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión interpreter — Phase 1 vertical slice.
+"""Inflexión interpreter — top-level package.
 
-Public API surface (Phase 1):
+Public API (stable since Phase 1):
     - run_source(source: str) -> str: parse + interpret an Inflexión source string,
       returning captured stdout.
     - run_file(path: str | Path) -> str: same, reading from a `.infl` file.
+
+The phase history is documented in each module's docstring; v0.0.6
+corresponds to Phase 5 (function defs, clitic stacks, reductions).
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ from .interpreter import Environment, run as _run_program
 from .lexer import lex
 from .parser import parse
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 __all__ = ["run_source", "run_file", "__version__"]
 

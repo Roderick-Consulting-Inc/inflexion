@@ -1,0 +1,5 @@
+La función descontar, que toma un precio y un descuento, es el precio menos el descuento por el precio.
+Los precios son [100, 200, 300, 400].
+El descuento es 0.10.
+Los precios_finales son descontar los precios el descuento.
+Decí los precios_finales.

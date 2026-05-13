@@ -1,6 +1,6 @@
 [project]
 name = "inflexion"
-version = "0.0.5"
+version = "0.0.6"
 description = "Inflexión: a Rioplatense-Spanish-grammar esoteric programming language interpreter"
 readme = "README.md"
 requires-python = ">=3.11"

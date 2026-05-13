@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión AST — Phase 4 node types.
+"""Inflexión AST — Phase 5 node types.
 
 Phase 2 added:
     - BindingEstar: mutable binding via *estar* (El X está en Y)
@@ -36,9 +36,24 @@ Phase 4 adds (number agreement → scalar / collection):
       stays byte-for-byte unchanged.
     - `BinaryOp.op` is extended to accept `"por"` (multiplication).
 
-Phase 5+ will add function definitions, clitic stacks > 1, diminutive /
-augmentative scaling, aspect-marked lazy evaluation, and reduction
-constructs (`el resultado de sumar los X`).
+Phase 5 adds (function abstraction + clitic argument routing + reduction):
+    - FunctionDef: relative-clause function definition
+      (`La función X, que toma una A, una B y un C, es <body>`). The
+      body is an Expr or `None` when the source elides it with the
+      sentinel `...` (paper §3.4 + §5 Example 3).
+    - FunctionCall: positional call by infinitive head
+      (`descontar los precios el descuento`). Args are parsed greedily
+      until an arithmetic operator or non-arg-shaped token is reached.
+    - CliticImperativeCall: vos-imperative carrying a stack of clitics
+      (`Dámelo`, `Transferíselo`). The stack is preserved in fixed
+      Spanish order. For Phase 5 the routing semantics on an
+      elided-body function is a record-of-call side effect; full
+      semantics will land with the ops-sem installment.
+    - Reduction: fold a collection to a scalar
+      (`el resultado de sumar los X`, paper §5 Example 4 line 4).
+
+Phase 6+ will add diminutive / augmentative scaling and aspect-marked
+lazy evaluation.
 """
 from __future__ import annotations
 
@@ -106,7 +121,50 @@ class BinaryOp:
     right: "Expr"
 
 
-Expr = Union[StringLit, IntLit, FloatLit, Identifier, ListLit, "BinaryOp"]
+@dataclass(frozen=True)
+class FunctionCall:
+    """Positional function call by infinitive head (Phase 5).
+
+    Surface form: `<verb-infinitive> <arg1> <arg2> ...`, e.g.
+    `descontar los precios el descuento`. The parser greedy-consumes
+    arg-shaped token groups (`<article> <noun>`, numeric literal,
+    bare identifier, list literal) until it hits an arithmetic
+    operator, punctuation, or an unrecognised shape.
+
+    Function lookup is by surface name (the lowered infinitive). At
+    call time the interpreter pushes a child scope with the formal
+    parameters bound to the evaluated argument values, evaluates the
+    body, and pops the scope.
+    """
+
+    name: str
+    args: tuple["Expr", ...]
+
+
+@dataclass(frozen=True)
+class Reduction:
+    """Fold-a-collection-to-a-scalar (Phase 5, paper §5 Example 4).
+
+    Surface form: `el resultado de <verb-infinitive> <article> <noun>`,
+    where the verb names the binary operation to fold under. Phase 5
+    wires `sumar` (sum); future installments can extend the dispatch
+    table without re-touching the parse shape.
+    """
+
+    op: str
+    target: "Expr"
+
+
+Expr = Union[
+    StringLit,
+    IntLit,
+    FloatLit,
+    Identifier,
+    ListLit,
+    "BinaryOp",
+    "FunctionCall",
+    "Reduction",
+]
 
 
 @dataclass(frozen=True)
@@ -222,6 +280,48 @@ class ImperativeCall:
 
 
 @dataclass(frozen=True)
+class FunctionDef:
+    """Function definition via relative-clause (Phase 5, paper §3.4 + §5 Ex 3).
+
+    Surface form: `La función <name>, que toma <param-list>, es <body>`,
+    where `<param-list>` is a comma-and-y separated list of
+    `<indef-article> <noun>` pairs (`un precio y un descuento`). The
+    body is an `Expr`, OR `None` when the source uses the elision
+    sentinel `...` — in which case the function may still be invoked
+    (the clitic-stack imperative form prints a record-of-call line)
+    but its return value is unspecified pending the ops-sem paper.
+    """
+
+    name: str
+    params: tuple[str, ...]
+    body: "Expr | None"
+
+
+@dataclass(frozen=True)
+class CliticImperativeCall:
+    """Vos-imperative with a clitic stack of one or more clitics (Phase 5).
+
+    Surface form: a single token like `Dámelo`, `Dáselo`, `Transferíselo`.
+    The lexer keeps it as one token; the parser strips the clitic stack
+    from the right (longest-suffix-first) and records the clitics in the
+    fixed Spanish order (`se` first, then 2nd/1st person, then 3rd-person
+    direct). The verb stem is mapped to its dictionary infinitive via the
+    explicit override table (for short / irregular forms) or by appending
+    `r` to a vos-imperative stem ending in `á` / `é` / `í`.
+
+    At interpretation time, `verb_lemma` is looked up in the function
+    registry. For Phase 5, an elided-body function logs a record-of-call
+    line; a defined-body function routes the clitics positionally
+    (`se` → param 2, `lo` → param 3, etc.) — but Phase 5 does not yet
+    bind clitic values, so it stops at logging the call shape. Full
+    routing semantics are deferred to the ops-sem installment.
+    """
+
+    verb_lemma: str
+    clitics: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class DeferredBinding:
     """Subjunctive deferred binding: `Cuando el <name> esté en <trigger>, <action>.`
 
@@ -300,6 +400,8 @@ Statement = Union[
     ImperativeCall,
     DeferredBinding,
     WhileLoop,
+    FunctionDef,
+    CliticImperativeCall,
 ]
 
 

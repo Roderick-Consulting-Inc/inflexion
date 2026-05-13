@@ -1,38 +1,39 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión parser — Phase 4.
+"""Inflexión parser — Phase 5.
 
-Recognises these sentence shapes (each terminated by `.`):
+Recognises these sentence shapes (each terminated by `.` — Phase 5
+additionally treats `...` as a sentence terminator, retained inside the
+sentence as the function-body elision sentinel):
 
-    1. Ser-binding (immutable, singular): `El <noun> es <value>.`
-    2. Ser-binding (immutable, plural):   `Los <noun> son <collection-expr>.`
-                                          (Phase 4 — RHS must be a
-                                           list literal or another
-                                           collection-typed expression;
-                                           `Los X son 5` is a parse error)
-    3. Estar-binding (mutable):           `El <noun> está en <value>.`
-    4. Mutation:                          `Hacé que el <noun> esté en <value>.`
-    5. Decí read-and-print (scalar):      `Decí el <noun>.` / `Decí <expr>.`
-    6. Decí read-and-print (plural):      `Decí los <noun>.`  (Phase 4)
-    7. Vos-imperative w/ clitic:          `Decilo.`
-    8. Subjunctive deferred:              `Cuando el <noun> esté en <value>, <imp>.`
-    9. While-loop:                        `Mientras el <noun> [no] esté en <value>,
-                                           <imperative>.`
+    1.  Ser-binding (immutable, singular): `El <noun> es <value>.`
+    2.  Ser-binding (immutable, plural):   `Los <noun> son <collection-expr>.`
+    3.  Estar-binding (mutable):           `El <noun> está en <value>.`
+    4.  Mutation:                          `Hacé que el <noun> esté en <value>.`
+    5.  Decí read-and-print (scalar):      `Decí el <noun>.` / `Decí <expr>.`
+    6.  Decí read-and-print (plural):      `Decí los <noun>.`
+    7.  Vos-imperative w/ clitic:          `Decilo.`
+    8.  Subjunctive deferred:              `Cuando el <noun> esté en <value>, <imp>.`
+    9.  While-loop:                        `Mientras el <noun> [no] esté en <value>,
+                                            <imperative>.`
+    10. Function definition (Phase 5):     `La función <name>, que toma <params>,
+                                            es <body>.`  (body may be `...`)
+    11. Vos-imperative w/ clitic-stack:    `Dámelo.` / `Transferíselo.`  (Phase 5)
 
-Value positions accept string-literal placeholders, integer literals,
-decimal literals (Phase 4), identifiers, list literals (Phase 4), an
-articled binding name (`el <noun>` or `los <noun>`), or a two-operand
-arithmetic form using `más` / `menos` / `por` (`por` is Phase 4).
+Value positions in Phase 5 additionally accept:
+    - Function calls: `<verb-infinitive> <arg1> <arg2> ...` where each arg
+      is `<article> <noun>`, a numeric literal, or a list literal. Args
+      are parsed greedily until an arithmetic operator or unrecognised
+      token is reached.
+    - Reductions: `el resultado de <verb-infinitive> <article> <noun>`
+      folds a collection to a scalar (paper §5 Example 4 line 4).
 
-Number agreement (paper §3.6, Phase 4):
+Number agreement (paper §3.6, Phase 4 carries into Phase 5):
     - A plural article (`los` / `las`) must combine with a plural noun
       and a plural verb form (`son`); singular article + plural noun
       (`el precios`) is a parse error.
     - The RHS of a plural ser binding must be a collection-producing
-      expression. Phase 4 deliberately rejects the implicit scalar
-      broadcast `Los X son 5` documented in paper §3.6: that rule
-      requires a length to be established by context (function-call
-      arity), which Phase 4 does not yet provide. Phase 5+ will lift
-      this restriction.
+      expression. A `FunctionCall` is treated as collection-producing
+      conservatively (the runtime check enforces actual shape).
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ from .ast import (
     BindingEstar,
     BindingSer,
     BindingSerPlural,
+    CliticImperativeCall,
     Condition,
     DecirCommand,
     DecirExpr,
@@ -50,6 +52,8 @@ from .ast import (
     EstaCondition,
     Expr,
     FloatLit,
+    FunctionCall,
+    FunctionDef,
     Identifier,
     ImperativeCall,
     IntLit,
@@ -57,6 +61,7 @@ from .ast import (
     MutationCommand,
     NegatedCondition,
     Program,
+    Reduction,
     Statement,
     StringLit,
     WhileLoop,
@@ -108,6 +113,73 @@ def _strip_clitic(verb_form: str) -> tuple[str, str | None]:
         if low.endswith(clitic) and len(low) > len(clitic):
             return low[: -len(clitic)], clitic
     return low, None
+
+
+# Vos-imperative stressed-vowel endings — `-á` / `-é` / `-í` mark the stem
+# of an `-ar` / `-er` / `-ir` verb's imperative respectively. Phase 5 uses
+# these for the bare-stem check after clitic-stack stripping. The bare
+# stem also retains its written accent (decí, hacé, transferí) when no
+# clitics are attached; with one enclitic the accent is conventionally
+# dropped (decilo, not decílo). Both forms are accepted.
+_IMPERATIVE_STEM_ENDINGS = ("á", "é", "í")
+
+# Map accented vowels to their unaccented form for lemma reconstruction.
+_ACCENT_FOLD = str.maketrans({"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u"})
+
+
+def _strip_clitic_stack(verb_form: str) -> tuple[str, tuple[str, ...]]:
+    """Strip a stack of one-or-more enclitic clitics from `verb_form`.
+
+    Phase 5 generalises `_strip_clitic`. Returns the bare verb stem and
+    the tuple of clitics in *fixed Spanish order* (i.e. left-to-right
+    as they appear in the surface form). The stripping is right-to-left
+    by longest-suffix-first, with a hard cap of 3 clitics — the maximum
+    that Spanish grammar permits in practice (e.g. `dándomenoslo` is
+    already unusual; four is unattested).
+
+    The function does no lemma validity check; the caller is responsible
+    for verifying the bare stem maps to a recognised verb. This split
+    keeps the stripping logic small and lets the caller decide what
+    "recognised" means in its context.
+    """
+    low = verb_form.lower()
+    clitics: list[str] = []
+    while len(clitics) < 3:
+        stripped, c = _strip_clitic(low)
+        if c is None:
+            break
+        clitics.insert(0, c)
+        low = stripped
+    return low, tuple(clitics)
+
+
+def _lemma_from_vos_imperative(bare: str) -> str | None:
+    """Derive the dictionary infinitive from a vos-imperative bare stem.
+
+    Lookup order:
+        1. Explicit override in `_VOS_IMPERATIVE_LEMMAS` (covers irregulars
+           that spaCy mis-lemmatises or that have a non-derivable mapping).
+        2. Suffix rule: a stem ending in stressed `-á` / `-é` / `-í` maps
+           to `-ar` / `-er` / `-ir` after accent-folding the final vowel.
+           `transferí` → `transferir`; `hablá` → `hablar`; `comé` → `comer`.
+
+    Returns `None` if no rule applies — the caller distinguishes a
+    well-formed-but-unknown imperative from a non-imperative token.
+    """
+    if not bare:
+        return None
+    if bare in _VOS_IMPERATIVE_LEMMAS:
+        return _VOS_IMPERATIVE_LEMMAS[bare]
+    last = bare[-1]
+    if last in _IMPERATIVE_STEM_ENDINGS:
+        body = bare[:-1] + last.translate(_ACCENT_FOLD)
+        if last == "á":
+            return body + "r"
+        if last == "é":
+            return body + "r"
+        if last == "í":
+            return body + "r"
+    return None
 
 
 def _is_plural_noun(tok: Token) -> bool:
@@ -190,26 +262,122 @@ def _parse_list_literal(
     )
 
 
+def _is_infinitive(tok: Token) -> bool:
+    """True if `tok` is morphologically a Spanish infinitive (POS=VERB, VerbForm=Inf)."""
+    return tok.pos == "VERB" and "VerbForm=Inf" in tok.morph
+
+
+def _is_arg_starter(tok: Token) -> bool:
+    """True if `tok` can start a function-call argument.
+
+    A function-call argument is one of:
+        - `<article> <noun>`         (articled identifier)
+        - `[ ... ]`                  (list literal)
+        - a numeric / string literal
+        - a bare identifier that is NOT an arithmetic operator, a clitic
+          pronoun, punctuation, an article on its own, or another verb.
+
+    Phase 5 is conservative — when in doubt, an unrecognised token ends
+    the arg loop rather than being adopted as a bare-identifier arg.
+    """
+    if tok.is_punct:
+        return False
+    if tok.text == "[":
+        return True
+    if tok.lower in _ARITHMETIC_OPS:
+        return False
+    if tok.lower in _SINGULAR_ARTICLES or tok.lower in _PLURAL_ARTICLES:
+        return True
+    if tok.is_numeric or tok.is_string_placeholder:
+        return True
+    return False
+
+
+def _parse_function_call(
+    tokens: list[Token], strings: list[str]
+) -> tuple[FunctionCall, int]:
+    """Parse `<verb-infinitive> <arg1> <arg2> ...`.
+
+    Caller has already verified `_is_infinitive(tokens[0])`. Args are
+    consumed greedily by `_parse_arith_atom` itself, but restricted to
+    arg-shaped operands (no nested arithmetic at the arg level — Phase
+    5 wants explicit parenthesisation eventually; for now the arg loop
+    stops at any arithmetic operator). Returns the `FunctionCall` plus
+    total tokens consumed (head + args).
+    """
+    head = tokens[0]
+    args: list[Expr] = []
+    i = 1
+    while i < len(tokens):
+        if not _is_arg_starter(tokens[i]):
+            break
+        arg, consumed = _parse_arith_atom(tokens[i:], strings)
+        args.append(arg)
+        i += consumed
+    return FunctionCall(name=head.lower, args=tuple(args)), i
+
+
+def _parse_reduction(
+    tokens: list[Token], strings: list[str]
+) -> tuple[Reduction, int]:
+    """Parse `el resultado de <verb-infinitive> <article> <noun>`.
+
+    Caller has already verified the reduction-prefix shape. Phase 5
+    requires the target to be an articled identifier; reducing an
+    arbitrary expression is deferred. The verb infinitive names the
+    fold op — the interpreter's reduction dispatch table maps op
+    surface forms (e.g. `sumar` → `sum`) to Python callables.
+    """
+    op_tok = tokens[3]
+    target_art = tokens[4]
+    target_noun = tokens[5]
+    if (
+        target_art.lower not in _SINGULAR_ARTICLES
+        and target_art.lower not in _PLURAL_ARTICLES
+    ):
+        raise InflexionParseError(
+            f"Reduction `el resultado de {op_tok.text} …` expects an articled "
+            f"target (`los X`/`las X`); got {target_art.text!r}."
+        )
+    return (
+        Reduction(op=op_tok.lower, target=Identifier(target_noun.lower)),
+        6,
+    )
+
+
 def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, int]:
     """Parse a single arithmetic operand starting at `tokens[0]`.
 
-    Operand shapes in Phase 4 are:
-        - `[<num>, <num>, ...]`             -> ListLit         (variable token count)
-        - `el <name>` / `la <name>`         -> Identifier      (2 tokens)
-        - `los <name>` / `las <name>`       -> Identifier      (2 tokens, plural)
-        - `<literal>`                       -> StringLit / IntLit / FloatLit (1 token)
-        - `<identifier>`                    -> Identifier      (1 token)
+    Operand shapes recognised in Phase 5:
+        - `el resultado de <verb-inf> <article> <noun>`  -> Reduction       (6 tokens)
+        - `<verb-infinitive> <arg> <arg> ...`            -> FunctionCall    (≥1 tokens)
+        - `[<num>, <num>, ...]`                          -> ListLit
+        - `el <name>` / `la <name>`                      -> Identifier      (2 tokens)
+        - `los <name>` / `las <name>`                    -> Identifier      (2 tokens)
+        - `<literal>`                                    -> StringLit / IntLit / FloatLit
+        - `<identifier>`                                 -> Identifier      (1 token)
 
-    Returns the parsed Expr plus the number of tokens consumed. The
-    plural-article variant is accepted in any value position; the
-    number-agreement check on the *binding side* is enforced by the
-    binding parser, not here.
+    Returns the parsed Expr plus the number of tokens consumed.
     """
     if not tokens:
         raise SyntaxError("Expected value, got end of clause.")
     first = tokens[0]
+    # Reduction prefix `el resultado de <verb-inf> <article> <noun>` — check
+    # before generic article handling so the longer pattern wins.
+    if (
+        len(tokens) >= 6
+        and first.lower == "el"
+        and tokens[1].lower == "resultado"
+        and tokens[2].lower == "de"
+        and _is_infinitive(tokens[3])
+    ):
+        return _parse_reduction(tokens, strings)
     if first.text == "[":
         return _parse_list_literal(tokens, strings)
+    # Function call: a verb in infinitive form heads a positional arg list.
+    # Detected at the atom level so it can appear anywhere a value can.
+    if _is_infinitive(first):
+        return _parse_function_call(tokens, strings)
     if first.lower in _SINGULAR_ARTICLES or first.lower in _PLURAL_ARTICLES:
         if len(tokens) < 2:
             raise SyntaxError(
@@ -308,10 +476,20 @@ def _is_collection_expr(expr: Expr) -> bool:
     a `BinaryOp` is collection if at least one operand syntactically is.
     A bare `IntLit` / `FloatLit` / `StringLit` is *not* collection, and
     triggers the `Los X son <scalar-literal>` parse error.
+
+    Phase 5 additions:
+        - A `FunctionCall` is conservatively treated as
+          collection-producing — the runtime check enforces actual
+          shape, raising a clear error if a plural binding receives a
+          scalar return.
+        - A `Reduction` is *not* collection (it folds to a scalar) and
+          therefore is not legal on the RHS of a plural ser binding.
     """
     if isinstance(expr, ListLit):
         return True
     if isinstance(expr, Identifier):
+        return True
+    if isinstance(expr, FunctionCall):
         return True
     if isinstance(expr, BinaryOp):
         return _is_collection_expr(expr.left) or _is_collection_expr(expr.right)
@@ -403,7 +581,15 @@ def _parse_mientras(sentence: list[Token], strings: list[str]) -> WhileLoop:
 
 
 def _split_sentences(tokens: list[Token]) -> list[list[Token]]:
-    """Split the token stream into sentences terminated by `.`."""
+    """Split the token stream into sentences terminated by `.` or `...`.
+
+    Phase 5 adds `...` as an additional sentence terminator so that the
+    function-body elision marker (`La función X, ..., es ...`) can end
+    a sentence without requiring the author to write `... .`. The `...`
+    token is *retained* as the final token of the sentence so the
+    function-def parser can detect the elision; a bare `.` is stripped
+    as in Phase 4.
+    """
     sentences: list[list[Token]] = []
     current: list[Token] = []
     for tok in tokens:
@@ -413,6 +599,9 @@ def _split_sentences(tokens: list[Token]) -> list[list[Token]]:
                 current = []
             continue
         current.append(tok)
+        if tok.text == "...":
+            sentences.append(current)
+            current = []
     if current:
         sentences.append(current)
     return sentences
@@ -575,6 +764,154 @@ def _parse_mutation(sentence: list[Token], strings: list[str]) -> MutationComman
     return MutationCommand(name=noun.lower, value=_parse_value(value_tokens, strings))
 
 
+def _parse_function_def(
+    sentence: list[Token], strings: list[str]
+) -> FunctionDef:
+    """Parse `La función <name>, que toma <params>, es <body>.`.
+
+    Layout (after lex):
+        [la, función, NAME, ',', que, toma, P-LIST..., ',', es, BODY..., (...?)]
+
+    Phase 5 conventions:
+        - The opening determiner is `la` and the head noun is `función`.
+        - The name is a single bare-identifier token following `función`.
+        - The relative clause `, que toma <params>,` introduces a
+          comma-and-y separated list of `<indef-article> <noun>` pairs.
+          Plural-articled params are *accepted but treated as scalar
+          formals at the param-name level* — the runtime broadcasts
+          element-wise as Phase 4 already does.
+        - `, es <body>` opens the body. The body is either a single
+          `...` token (elided) or any Phase-5 value expression.
+
+    A trailing `...` survives sentence-splitting as the last token of
+    the sentence and is detected here as the elision marker.
+    """
+    if len(sentence) < 9:
+        raise InflexionParseError(
+            f"Function definition expects `La función <name>, que toma "
+            f"<params>, es <body>`; got {[t.text for t in sentence]}"
+        )
+    art, fn_word, name_tok, comma1, que, toma, *rest = sentence
+    if art.lower != "la":
+        raise InflexionParseError(
+            f"Function definition opens with `La función`; got {art.text!r}."
+        )
+    if fn_word.lower != "función":
+        raise InflexionParseError(
+            f"Expected `función` after `La`; got {fn_word.text!r}."
+        )
+    if comma1.text != ",":
+        raise InflexionParseError(
+            f"Expected `,` after function name `{name_tok.text}`; "
+            f"got {comma1.text!r}."
+        )
+    if que.lower != "que":
+        raise InflexionParseError(
+            f"Expected `que` in relative clause; got {que.text!r}."
+        )
+    if toma.lower != "toma":
+        raise InflexionParseError(
+            f"Expected `toma` in relative clause; got {toma.text!r}."
+        )
+    # Locate the comma followed by `es` that opens the body.
+    body_open_idx: int | None = None
+    for i in range(len(rest) - 1):
+        if rest[i].text == "," and rest[i + 1].lower == "es":
+            body_open_idx = i
+            break
+    if body_open_idx is None:
+        raise InflexionParseError(
+            f"Function definition is missing `, es <body>` clause; "
+            f"got {[t.text for t in sentence]}"
+        )
+    param_tokens = rest[:body_open_idx]
+    body_tokens = rest[body_open_idx + 2 :]  # skip `,` and `es`
+    params = _parse_param_list(param_tokens)
+    if (
+        len(body_tokens) == 1
+        and body_tokens[0].text == "..."
+    ):
+        body: Expr | None = None
+    elif not body_tokens:
+        raise InflexionParseError(
+            f"Function `{name_tok.text}` is missing its body (`es <body>`)."
+        )
+    else:
+        body = _parse_value(body_tokens, strings)
+    return FunctionDef(name=name_tok.lower, params=params, body=body)
+
+
+def _parse_param_list(tokens: list[Token]) -> tuple[str, ...]:
+    """Parse a comma-and-y separated list of `<article> <noun>` pairs.
+
+    Accepts both singular indefinite articles (`un` / `una`) — the
+    canonical form for the relative-clause function definition — and,
+    permissively, definite or plural articles, since the article in a
+    function-definition's parameter declaration does not carry the
+    scalar/collection distinction that it carries in a binding (the
+    parameter is an opaque slot until the call site).
+
+    Returns the parameter names as a tuple of lowercased surface forms.
+    """
+    if not tokens:
+        raise InflexionParseError(
+            "Function-definition relative clause has no parameters; "
+            "`que toma <article> <noun>` is required."
+        )
+    params: list[str] = []
+    i = 0
+    while i < len(tokens):
+        art = tokens[i]
+        if (
+            art.lower not in _SINGULAR_ARTICLES
+            and art.lower not in _PLURAL_ARTICLES
+        ):
+            raise InflexionParseError(
+                f"Expected article before parameter noun; got {art.text!r}."
+            )
+        if i + 1 >= len(tokens):
+            raise InflexionParseError(
+                f"Article {art.text!r} not followed by a parameter noun."
+            )
+        noun = tokens[i + 1]
+        params.append(noun.lower)
+        i += 2
+        if i >= len(tokens):
+            break
+        sep = tokens[i]
+        if sep.text == "," or sep.lower == "y":
+            i += 1
+            # Allow `, y` (Oxford-comma-style) by consuming another `y` if present.
+            if i < len(tokens) and tokens[i].lower == "y":
+                i += 1
+            continue
+        raise InflexionParseError(
+            f"Expected `,` or `y` between parameters; got {sep.text!r}."
+        )
+    return tuple(params)
+
+
+def _parse_clitic_stack_imperative(
+    token: Token,
+) -> CliticImperativeCall | None:
+    """Parse a single-token vos-imperative with a clitic stack of ≥1 clitics.
+
+    Returns the parsed `CliticImperativeCall` if the surface form decomposes
+    cleanly into a recognised vos-imperative stem plus a clitic stack;
+    returns `None` if it does not (so the caller can try a different
+    imperative shape — single-clitic Phase-1 path, for instance).
+    """
+    if token.is_punct:
+        return None
+    bare, clitics = _strip_clitic_stack(token.text)
+    if not clitics:
+        return None
+    lemma = _lemma_from_vos_imperative(bare)
+    if lemma is None:
+        return None
+    return CliticImperativeCall(verb_lemma=lemma, clitics=clitics)
+
+
 def _parse_imperative_tokens(
     tokens: list[Token], strings: list[str]
 ) -> Statement:
@@ -632,14 +969,26 @@ def _parse_imperative_tokens(
             f"`Decí \"<text>\"`, or a single enclitic form like `Decilo`; "
             f"got {[t.text for t in tokens]}"
         )
+    # Phase 1 single-clitic backward-compat: strip one clitic and look up
+    # the bare stem in the explicit override table. This branch keeps
+    # `Decilo`, `Hacelo`, etc. emitting `ImperativeCall` exactly as Phase 1
+    # did, so the existing test corpus is byte-for-byte unaffected.
     bare, clitic = _strip_clitic(surface)
     if bare in _VOS_IMPERATIVE_LEMMAS:
         return ImperativeCall(
             verb_lemma=_VOS_IMPERATIVE_LEMMAS[bare], clitic=clitic
         )
+    # Phase 5: clitic-stack form (one-or-more clitics on a vos-imperative
+    # stem resolved via the explicit table or by the `-á`/`-é`/`-í` suffix
+    # rule). Catches `Transferíselo`, `Dámelo`, `Dáselo`, etc.
+    stack_call = _parse_clitic_stack_imperative(first)
+    if stack_call is not None:
+        return stack_call
     raise SyntaxError(
-        f"Unrecognised imperative form {first.text!r}. Phase 4 supports "
-        f"vos-imperatives of: {sorted(set(_VOS_IMPERATIVE_LEMMAS.values()))}"
+        f"Unrecognised imperative form {first.text!r}. Phase 5 supports "
+        f"vos-imperatives of: {sorted(set(_VOS_IMPERATIVE_LEMMAS.values()))} "
+        f"plus regular `-ar`/`-er`/`-ir` infinitives reconstructible from "
+        f"a vos-imperative stem with one or more enclitic clitics."
     )
 
 
@@ -692,6 +1041,15 @@ def _parse_cuando(sentence: list[Token], strings: list[str]) -> DeferredBinding:
     )
 
 
+def _is_function_def_opening(sentence: list[Token]) -> bool:
+    """True if the sentence opens with `La función …` (Phase 5 function definition)."""
+    return (
+        len(sentence) >= 3
+        and sentence[0].lower == "la"
+        and sentence[1].lower == "función"
+    )
+
+
 def parse(tokens: list[Token], strings: list[str]) -> Program:
     """Parse a token stream + string table into a Program."""
     statements: list[Statement] = []
@@ -701,6 +1059,10 @@ def parse(tokens: list[Token], strings: list[str]) -> Program:
             statements.append(_parse_cuando(sentence, strings))
         elif first.lower == "mientras":
             statements.append(_parse_mientras(sentence, strings))
+        elif _is_function_def_opening(sentence):
+            # Phase 5: function definitions take precedence over the plain
+            # singular-binding shape, since both open with `La …`.
+            statements.append(_parse_function_def(sentence, strings))
         elif first.lower in _PLURAL_ARTICLES:
             statements.append(_parse_plural_binding(sentence, strings))
         elif first.lower in _SINGULAR_ARTICLES:
