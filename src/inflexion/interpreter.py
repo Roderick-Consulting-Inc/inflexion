@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión interpreter — Phase 3a.
+"""Inflexión interpreter — Phase 3b.
 
 Walks the AST, evaluating bindings into an Environment that distinguishes
 *ser* (immutable) from *estar* (mutable) bindings, dispatches imperatives,
@@ -7,13 +7,23 @@ and (Phase 3a) supports subjunctive deferred bindings: `Cuando el X esté
 en Y, <imperative>` registers a one-shot observer on the mutable cell `X`
 that fires its action when a subsequent mutation sets `X` equal to `Y`.
 
-Phase 3a simplifications retained:
+Phase 3b additions:
+    - Integer arithmetic in expression position (`+` via `más`, `−` via
+      `menos`) on bindings and literals.
+    - Negated subjunctive condition (`no esté en Y`) — fires when the
+      cell's current value is NOT equal to Y. Used as the head of a
+      `Mientras` loop; not yet supported by `Cuando`.
+    - `Mientras <condition>, hacé <imperative>` while-loop with a hard
+      safety cap on iterations (see `MAX_MIENTRAS_ITERATIONS`) so a
+      mis-bounded loop fails fast instead of hanging the interpreter.
+
+Phase 3b simplifications retained:
     - The clitic `lo` on a vos-imperative still dereferences the most-recent
       binding (Phase 1 anaphora). Proper resolution lands later.
     - The only imperative verbs wired up are `decir` (print) and `hacer` (the
       mutation marker `Hacé que ...`).
-    - Equality is value-identity (Python `==`); inequality / negation /
-      arithmetic conditions are deferred to Phase 3b.
+    - Equality is value-identity (Python `==`). Arithmetic comparisons
+      other than equality (`<`, `>`, `≥`) are deferred to Phase 4+.
 """
 from __future__ import annotations
 
@@ -22,20 +32,32 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .ast import (
+    BinaryOp,
     BindingEstar,
     BindingSer,
+    Condition,
     DecirCommand,
+    DecirExpr,
     DecirLiteral,
     DeferredBinding,
+    EstaCondition,
     Expr,
     Identifier,
     ImperativeCall,
     IntLit,
     MutationCommand,
+    NegatedCondition,
     Program,
     Statement,
     StringLit,
+    WhileLoop,
 )
+
+
+# Hard safety cap on `Mientras` iteration count. Phase 3b is intentionally
+# not aiming for unbounded recursion or coinduction; a runaway loop should
+# fail fast with a clear error rather than hang the interpreter.
+MAX_MIENTRAS_ITERATIONS = 100_000
 
 
 class InflexionRuntimeError(RuntimeError):
@@ -166,7 +188,48 @@ def _eval_expr(expr: Expr, env: Environment) -> object:
         return expr.value
     if isinstance(expr, Identifier):
         return env.lookup(expr.name)
+    if isinstance(expr, BinaryOp):
+        left = _eval_expr(expr.left, env)
+        right = _eval_expr(expr.right, env)
+        # Phase 3b restricts arithmetic to integers. Strings (or any
+        # non-int operand) surface as a runtime error so a typo like
+        # `Decí el saludo más 1` doesn't silently concatenate.
+        if not isinstance(left, int) or isinstance(left, bool):
+            raise InflexionRuntimeError(
+                f"Arithmetic operand is not an integer: {left!r} "
+                f"(in `{expr.op}`)."
+            )
+        if not isinstance(right, int) or isinstance(right, bool):
+            raise InflexionRuntimeError(
+                f"Arithmetic operand is not an integer: {right!r} "
+                f"(in `{expr.op}`)."
+            )
+        if expr.op == "más":
+            return left + right
+        if expr.op == "menos":
+            return left - right
+        raise InflexionRuntimeError(  # pragma: no cover - parser-filtered
+            f"Unsupported arithmetic operator: {expr.op!r}"
+        )
     raise InflexionRuntimeError(f"Unsupported expression: {expr!r}")
+
+
+def _eval_condition(cond: Condition, env: Environment) -> bool:
+    """Evaluate a `Mientras`/`Cuando` condition head against the current env.
+
+    `EstaCondition` is true iff the named cell's value equals the
+    trigger; `NegatedCondition` inverts. Phase 3b uses Python `==` for
+    equality; ordering comparisons are out of scope.
+    """
+    current = env.lookup(cond.name)
+    trigger = _eval_expr(cond.trigger_value, env)
+    if isinstance(cond, EstaCondition):
+        return current == trigger
+    if isinstance(cond, NegatedCondition):
+        return current != trigger
+    raise InflexionRuntimeError(  # pragma: no cover - exhaustive
+        f"Unsupported condition: {cond!r}"
+    )
 
 
 def _resolve_clitic(clitic: str, env: Environment) -> object:
@@ -211,6 +274,8 @@ def _execute_statement(
             _execute_statement(action, env, out)
     elif isinstance(stmt, DecirCommand):
         out.write(f"{env.lookup(stmt.name)}\n")
+    elif isinstance(stmt, DecirExpr):
+        out.write(f"{_eval_expr(stmt.value, env)}\n")
     elif isinstance(stmt, DecirLiteral):
         out.write(f"{stmt.value.value}\n")
     elif isinstance(stmt, ImperativeCall):
@@ -219,6 +284,22 @@ def _execute_statement(
         env.register_observer(
             stmt.name, _eval_expr(stmt.trigger_value, env), stmt.action
         )
+    elif isinstance(stmt, WhileLoop):
+        # Bounded re-evaluation of the condition with each iteration.
+        # Observers attached to the loop variable still fire from
+        # within the body's `MutationCommand` branch above — `Mientras`
+        # does not bypass the observer registry.
+        iterations = 0
+        while _eval_condition(stmt.condition, env):
+            if iterations >= MAX_MIENTRAS_ITERATIONS:
+                raise InflexionRuntimeError(
+                    f"`Mientras` loop exceeded the safety cap of "
+                    f"{MAX_MIENTRAS_ITERATIONS} iterations. Phase 3b is not "
+                    f"aiming for unbounded iteration; check the loop's "
+                    f"termination condition."
+                )
+            _execute_statement(stmt.body, env, out)
+            iterations += 1
     else:  # pragma: no cover - exhaustive
         raise InflexionRuntimeError(f"Unsupported statement: {stmt!r}")
 

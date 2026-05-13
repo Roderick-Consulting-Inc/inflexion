@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión AST — Phase 3a node types.
+"""Inflexión AST — Phase 3b node types.
 
 Phase 2 added:
     - BindingEstar: mutable binding via *estar* (El X está en Y)
@@ -8,11 +8,21 @@ Phase 2 added:
     - DecirCommand: vos-imperative `Decí <noun-phrase>` reading by name
       (the Phase 1 `Decilo` enclitic form remains an ImperativeCall)
 
-Phase 3a adds:
+Phase 3a added:
     - DeferredBinding: subjunctive deferred observer
       (`Cuando el X esté en Y, <imperative>`)
 
-Phase 3b+ will add MientrasLoop, arithmetic, FunctionDef, ListLit, etc.
+Phase 3b adds:
+    - BinaryOp: integer arithmetic (`el X más N`, `el X menos N`),
+      with operands themselves drawn from `Expr` so bindings and
+      literals can both appear in either slot
+    - EstaCondition / NegatedCondition: subjunctive condition shapes
+      (`el X esté en Y` / `el X no esté en Y`) — reused as the head
+      of a `mientras` clause
+    - WhileLoop: bounded iteration (`Mientras <cond>, hacé <imperative>`)
+
+Phase 3c+ will add multiplication/division, plural collections,
+function definitions, clitic stacks > 1, diminutive/aspect, etc.
 """
 from __future__ import annotations
 
@@ -41,7 +51,22 @@ class Identifier:
     name: str
 
 
-Expr = Union[StringLit, IntLit, Identifier]
+@dataclass(frozen=True)
+class BinaryOp:
+    """Integer arithmetic on two `Expr` operands: `el X más N`, `el X menos N`.
+
+    Phase 3b wires only `+` (Spanish *más*) and `−` (Spanish *menos*).
+    Multiplication, division, and other operators are deferred to a
+    later phase. Either operand may be an `Identifier` (a binding name)
+    or an `IntLit`; mixing a `StringLit` in raises at runtime.
+    """
+
+    op: str  # "más" or "menos"
+    left: "Expr"
+    right: "Expr"
+
+
+Expr = Union[StringLit, IntLit, Identifier, "BinaryOp"]
 
 
 @dataclass(frozen=True)
@@ -90,6 +115,20 @@ class DecirCommand:
 
 
 @dataclass(frozen=True)
+class DecirExpr:
+    """Imperative print of an arbitrary expression: `Decí <expr>.`
+
+    Phase 3b addition, motivated by arithmetic in print position
+    (`Decí el total más 3`). The wrapped `Expr` is evaluated and the
+    result printed with a trailing newline, like `DecirCommand`.
+    Distinct from `DecirCommand` (Identifier-only, no arithmetic) so
+    existing Phase 1+2+3a paths stay byte-for-byte unchanged.
+    """
+
+    value: "Expr"
+
+
+@dataclass(frozen=True)
 class DecirLiteral:
     """Imperative print of a string literal: `Decí "<text>".`
 
@@ -134,14 +173,63 @@ class DeferredBinding:
     action: "Statement"
 
 
+@dataclass(frozen=True)
+class EstaCondition:
+    """Subjunctive equality test: `el <name> esté en <trigger_value>`.
+
+    Phase 3b factoring of the condition-head shape that Phase 3a's
+    `DeferredBinding` carried inline. Reused as the condition of a
+    `mientras` loop. True iff `name`'s current value equals
+    `trigger_value`.
+    """
+
+    name: str
+    trigger_value: "Expr"
+
+
+@dataclass(frozen=True)
+class NegatedCondition:
+    """Negated subjunctive equality: `el <name> no esté en <trigger_value>`.
+
+    True iff `name`'s current value is NOT equal to `trigger_value`.
+    Used as a `mientras` head — the canonical counter-loop reads
+    `Mientras el contador no esté en 0, hacé …`. (Phase 3b does not
+    fold negation into `Cuando`; observer-style negation is deferred.)
+    """
+
+    name: str
+    trigger_value: "Expr"
+
+
+Condition = Union[EstaCondition, NegatedCondition]
+
+
+@dataclass(frozen=True)
+class WhileLoop:
+    """Bounded while-loop: `Mientras <condition>, hacé <imperative>`.
+
+    Phase 3b iteration construct. The condition is re-evaluated before
+    each iteration; the body is any Phase-1/2/3a imperative statement.
+    The interpreter enforces a safety cap on iteration count
+    (currently 100,000) to keep runaway loops from hanging the
+    interpreter — Phase 3b is intentionally not aiming for unbounded
+    coinduction.
+    """
+
+    condition: "Condition"
+    body: "Statement"
+
+
 Statement = Union[
     BindingSer,
     BindingEstar,
     MutationCommand,
     DecirCommand,
+    DecirExpr,
     DecirLiteral,
     ImperativeCall,
     DeferredBinding,
+    WhileLoop,
 ]
 
 
