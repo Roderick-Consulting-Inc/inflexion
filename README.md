@@ -30,7 +30,7 @@ The language is in its design phase. The first installment lays out the grammati
 
 ## Runtime status
 
-The Python interpreter is being built in phases that track the six grammatical mappings from `05` §3 and the worked examples from `05` §5. As of v0.0.6 (commit `c22c8d7`):
+The Python interpreter is being built in phases that track the six grammatical mappings from `05` §3 and the worked examples from `05` §5. As of v0.0.7 (commit `1671465`), **Phase 6 has shipped and the six-mapping curriculum is implemented end-to-end**:
 
 | Phase | Mapping covered | Example file | Status |
 |---|---|---|---|
@@ -39,10 +39,12 @@ The Python interpreter is being built in phases that track the six grammatical m
 | 3a | *Cuando* subjunctive deferred binding (§3.2) | `examples/contador-listo.infl` | shipped |
 | 3b | *Mientras* iteration + arithmetic (§3.2, §3.7) | `examples/contador-cuenta.infl` | shipped |
 | 4 | Number agreement + collections + broadcasting (§3.6, §3.7) | `examples/precios.infl` | shipped |
-| 5 | Function definition (relative-clause syntax), positional calls, clitic stacks > 1, reductions (§3.4, §3.8) | `examples/descontar.infl`, `examples/transferir.infl` | **shipped (v0.0.6, `c22c8d7`)** |
-| 6 | Diminutive / augmentative scaling + aspect-marked lazy (§3.3, §3.5) | TBD | planned |
+| 5 | Function definition (relative-clause syntax), positional calls, clitic stacks > 1, reductions (§3.4, §3.8) | `examples/descontar.infl`, `examples/transferir.infl` | shipped (v0.0.6, `c22c8d7`) |
+| 6 | Diminutive / augmentative scaling + aspect-marked lazy (§3.3, §3.5) | `examples/sumita.infl`, `examples/potencias.infl` | **shipped (v0.0.7, `1671465`)** |
 
-60 tests passing as of Phase 5. The runtime is hand-built (Python + spaCy `es_core_news_sm` morphology + a custom rule layer for vos imperatives and irregular bare-stem resolution). Source lives in `src/inflexion/`; tests in `tests/`; runnable example programs in `examples/`.
+82 tests passing as of Phase 6. The runtime is hand-built (Python + spaCy `es_core_news_sm` morphology + a custom rule layer for vos imperatives and irregular bare-stem resolution). Source lives in `src/inflexion/`; tests in `tests/`; runnable example programs in `examples/`.
+
+With Phase 6, the six grammatical mappings from paper §3 — *ser* / *estar*, mood, aspect, clitic ordering, diminutive / augmentative, number — all run end-to-end. The next paper in the series, Installment 06 (operational semantics), will be drafted from the captured implementation specification.
 
 ## Naming
 

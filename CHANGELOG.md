@@ -2,6 +2,30 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.7] — 2026-05-13
+
+### Added — Phase 6: diminutive / augmentative scaling + aspect-marked lazy (commit `1671465`)
+
+Closes the six-mapping curriculum of paper §3 — the implementation phase for the present series is complete.
+
+- Diminutive / augmentative scaling at value-position via a lookup-time fallback (no new AST node, no parser surface change in value position). Identifier resolution falls through to a suffix table when the bound name is absent; if the stripped base resolves (binding or Spanish-numeral table `cero`-`diez`), the scaled value is returned.
+- Scaling factors (paper §3.5): `-ito` / `-ita` → ×½, `-illo` / `-illa` → ×¼, `-ón` / `-ona` → ×2, `-azo` / `-aza` → ×4. Integer-preserving where possible (`sumita` over 1000 → 500, not 500.0). Tuples scale element-wise.
+- Diminutive function-variant invocation surfaces a clear "variant not registered" error naming the cheap / thorough convention, rather than silently dispatching.
+- AspectMarkedOperation: top-level `<calculó | calculaba> <art> <op-noun> del <base>.` parses as an aspect-marked statement. `Tense=Past` → perfective (eager). `Tense=Imp` → imperfective (lazy stream, prints first six terms with `, ...`).
+- Dispatch table wires `(calcular, potencia)` → powers-of-N generator; extensible without re-touching the parser.
+- Aspect-marked base accepts numeric literal (`del 2`) or articled identifier (`del contador`); both `del` and explicit `de el` accepted.
+- `DecirCommand` / `DecirPluralCommand` route through `_eval_expr` so the diminutive lookup fallback fires for `Decí la sumita.`.
+
+### Tests
+
+- 82 passing (60 baseline + 22 new: 13 in `tests/test_sumita.py`, 9 in `tests/test_potencias.py`).
+
+### Out of scope (deferred to Phase 7 / operational semantics installment)
+
+- Binding-target capture for aspect-marked operations (`la s es calculó las potencias del 2`).
+- Diminutive-marked function variants with bodies (Phase 6 surfaces "register the variant" error rather than dispatching to an implicit rewrite).
+- Less regular diminutive numeral forms (`cinquito` requires multi-step reverse-derivation; `cincón` works via the numeral table + vowel restoration).
+
 ## [0.0.6] — 2026-05-13
 
 ### Added — Phase 5: function definitions, clitic stacks, reductions (commit `c22c8d7`)
