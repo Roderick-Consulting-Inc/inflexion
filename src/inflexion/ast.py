@@ -1,14 +1,14 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión AST — Phase 1 node types.
+"""Inflexión AST — Phase 2 node types.
 
-Phase 1 covers only:
-    - Program: top-level container
-    - BindingSer: immutable binding via *ser* (El X es Y)
-    - ImperativeCall: vos-imperative verb form with up to one enclitic clitic
-    - StringLit / Identifier: the two Phase 1 expression forms
+Phase 2 adds:
+    - BindingEstar: mutable binding via *estar* (El X está en Y)
+    - MutationCommand: imperative mutation (Hacé que el X esté en Y)
+    - IntLit: integer numeric literal
+    - DecirCommand: vos-imperative `Decí <noun-phrase>` reading by name
+      (the Phase 1 `Decilo` enclitic form remains an ImperativeCall)
 
-Phase 2+ will add BindingEstar, SubjunctiveDeferred, FunctionDef, ListLit,
-NumericLit with diminutive/augmentative scaling, etc.
+Phase 3+ will add SubjunctiveDeferred, MientrasLoop, FunctionDef, ListLit, etc.
 """
 from __future__ import annotations
 
@@ -24,13 +24,20 @@ class StringLit:
 
 
 @dataclass(frozen=True)
+class IntLit:
+    """An integer literal, e.g. 0, 1, 100."""
+
+    value: int
+
+
+@dataclass(frozen=True)
 class Identifier:
     """A bare identifier — the noun in a binding or referent name."""
 
     name: str
 
 
-Expr = Union[StringLit, Identifier]
+Expr = Union[StringLit, IntLit, Identifier]
 
 
 @dataclass(frozen=True)
@@ -42,11 +49,48 @@ class BindingSer:
 
 
 @dataclass(frozen=True)
+class BindingEstar:
+    """Mutable binding via *estar*: `El <name> está en <value>.`
+
+    The name is bound to a cell currently holding `value`; subsequent
+    `Hacé que el <name> esté en <new_value>` mutates the cell.
+    """
+
+    name: str
+    value: Expr
+
+
+@dataclass(frozen=True)
+class MutationCommand:
+    """Imperative mutation: `Hacé que el <name> esté en <value>.`
+
+    Vos imperative of *hacer* + subjunctive complement (*esté*). Sets the
+    mutable (*estar*) binding `name` to `value`. Mutating a *ser* binding
+    is a runtime error.
+    """
+
+    name: str
+    value: Expr
+
+
+@dataclass(frozen=True)
+class DecirCommand:
+    """Imperative read-and-print: `Decí <article> <noun>.`
+
+    Phase 2 form that names its argument as a full noun phrase, as opposed
+    to the Phase 1 `Decilo` form which dereferences the most-recent binding
+    via the enclitic `lo`.
+    """
+
+    name: str
+
+
+@dataclass(frozen=True)
 class ImperativeCall:
     """A vos-imperative verb (optionally with a single enclitic clitic).
 
-    Phase 1 only handles single-clitic imperatives like `Decilo` (decir + lo).
-    `verb_lemma` is the dictionary form of the verb (e.g. "decir").
+    Phase 1 form — kept for `Decilo` and other single-clitic enclitic
+    imperatives. `verb_lemma` is the dictionary form (e.g. "decir");
     `clitic` is one of: lo, la, le, los, las, les, me, te, se, nos, os.
     """
 
@@ -54,7 +98,7 @@ class ImperativeCall:
     clitic: str | None
 
 
-Statement = Union[BindingSer, ImperativeCall]
+Statement = Union[BindingSer, BindingEstar, MutationCommand, DecirCommand, ImperativeCall]
 
 
 @dataclass(frozen=True)
