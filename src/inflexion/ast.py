@@ -1,5 +1,31 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""Inflexión AST — Phase 5 node types.
+"""Inflexión AST — Phase 7 node types.
+
+Phase 7a adds (conditional dispatch + multi-clause mientras body):
+    - ComparisonCondition: indicative comparison head for `Si` branches.
+      Supports `es` (==), `no es` (!=), `es mayor que` (>),
+      `es menor que` (<), `es divisible por` (% == 0).
+    - IfStatement: `Si <cond>, <body>; sino, si <cond>, <body>; sino, <body>`.
+      Arms are tried in order; the first matching arm executes its body.
+    - MutationSequence: `hacé que … y que … y que …`. A sequence of
+      `MutationCommand` nodes executed sequentially. Sequential semantics:
+      each mutation evaluates its RHS with the CURRENT environment, so
+      prior mutations in the same sequence ARE visible to later ones.
+      `y que el a esté en el b y que el b esté en el a` is therefore NOT
+      an atomic swap. This matches Spanish imperative-list read order.
+
+Phase 7b adds (recursion + if-expression):
+    - IfExpression: `si <cond> entonces <then-expr> sino <else-expr>`.
+      Distinct from IfStatement (statement form): the expression form
+      appears in value position (function bodies, RHS of bindings).
+      Uses `entonces` keyword to disambiguate from the statement form.
+
+Phase 7c adds (string ops + indexed list + stdin):
+    - StringLen, StringCharAt, CharCode, CodeToChar, StringChars:
+      string operations — length, 1-indexed char-at, ord, chr,
+      and string→list conversion.
+    - ListIndexGet, ListIndexSet: 1-indexed get/set on estar-bound lists.
+    - StdinReadLine, StdinReadNumber: bind a line (or parsed int) from stdin.
 
 Phase 2 added:
     - BindingEstar: mutable binding via *estar* (El X está en Y)
@@ -173,6 +199,13 @@ Expr = Union[
     "BinaryOp",
     "FunctionCall",
     "Reduction",
+    "IfExpression",   # Phase 7b
+    "StringLen",      # Phase 7c
+    "StringCharAt",   # Phase 7c
+    "CharCode",       # Phase 7c
+    "CodeToChar",     # Phase 7c
+    "StringChars",    # Phase 7c
+    "ListIndexGet",   # Phase 7c
 ]
 
 
@@ -415,6 +448,148 @@ Condition = Union[EstaCondition, NegatedCondition]
 
 
 @dataclass(frozen=True)
+class ComparisonCondition:
+    """Phase 7a indicative comparison: `el <name> <op> <value>`.
+
+    Used as the condition head of a `Si` branch — distinct from the
+    subjunctive `EstaCondition` / `NegatedCondition` used by `Mientras`.
+
+    `op` is one of:
+        ``"es"``            equality  (==)
+        ``"no_es"``         inequality (!=)
+        ``"mayor_que"``     strictly greater (>)
+        ``"menor_que"``     strictly less (<)
+        ``"divisible_por"`` divisibility (% == 0), essential for FizzBuzz
+    """
+
+    name: str
+    op: str
+    value: "Expr"
+
+
+@dataclass(frozen=True)
+class IfStatement:
+    """Phase 7a conditional dispatch: `Si … , … ; sino, …`.
+
+    `arms` is an ordered tuple of ``(condition, body)`` pairs — the
+    first arm whose condition is true executes its body; the rest are
+    skipped. If no arm matches and `else_body` is not None, `else_body`
+    executes. All bodies are imperative Statements (single-imperative
+    convention matching the existing `mientras`-body shape).
+    """
+
+    arms: "tuple[tuple[ComparisonCondition, Statement], ...]"
+    else_body: "Statement | None"
+
+
+@dataclass(frozen=True)
+class MutationSequence:
+    """Phase 7a multi-clause mutation body: `hacé que … y que … y que …`.
+
+    A non-empty sequence of `MutationCommand` nodes. The interpreter
+    evaluates them left-to-right with sequential (not atomic) semantics:
+    each mutation evaluates its RHS with the CURRENT environment, so
+    prior mutations in the same sequence are visible to later ones. This
+    means ``y que el a esté en el b y que el b esté en el a`` is *not*
+    an atomic swap — it sets ``a = b`` first, then sets ``b = a`` (the
+    already-updated value). We document this as the intended behaviour:
+    it matches the natural Spanish reading of a comma-separated imperative
+    list where each clause follows from the previous.
+    """
+
+    mutations: "tuple[MutationCommand, ...]"
+
+
+@dataclass(frozen=True)
+class IfExpression:
+    """Phase 7b if-then-else in value position: `si <cond> entonces <then> sino <else>`.
+
+    Distinct from `IfStatement` (statement form). The `entonces` keyword
+    marks the then-branch and signals to the parser that this is an
+    expression, not a statement. The condition uses the same
+    `ComparisonCondition` as `IfStatement`. `then_value` and
+    `else_value` are arbitrary `Expr` nodes.
+    """
+
+    condition: "ComparisonCondition"
+    then_value: "Expr"
+    else_value: "Expr"
+
+
+# --- Phase 7c string/IO nodes -------------------------------------------
+
+
+@dataclass(frozen=True)
+class StringLen:
+    """Phase 7c: `el largo de <expr>` — string length (int)."""
+
+    target: "Expr"
+
+
+@dataclass(frozen=True)
+class StringCharAt:
+    """Phase 7c: `el carácter N de <expr>` — 1-indexed char-at (str)."""
+
+    index: "Expr"
+    target: "Expr"
+
+
+@dataclass(frozen=True)
+class CharCode:
+    """Phase 7c: `el código de <expr>` — ord of single-char string (int)."""
+
+    target: "Expr"
+
+
+@dataclass(frozen=True)
+class CodeToChar:
+    """Phase 7c: `el carácter del código <expr>` — chr of int (str)."""
+
+    code: "Expr"
+
+
+@dataclass(frozen=True)
+class StringChars:
+    """Phase 7c: `los caracteres de <expr>` — list of single-char strings."""
+
+    target: "Expr"
+
+
+@dataclass(frozen=True)
+class ListIndexGet:
+    """Phase 7c: `el N-ésimo de <list-expr>` — 1-indexed get from list."""
+
+    index: "Expr"
+    target: "Expr"
+
+
+@dataclass(frozen=True)
+class ListIndexSet:
+    """Phase 7c: `hacé que el N-ésimo de <list-name> esté en <value>` — 1-indexed set.
+
+    `list_name` is the name of the estar-bound list cell to mutate.
+    """
+
+    index: "Expr"
+    list_name: str
+    value: "Expr"
+
+
+@dataclass(frozen=True)
+class StdinReadLine:
+    """Phase 7c: `Escuchá una línea en el <name>.` — read a line from stdin."""
+
+    name: str
+
+
+@dataclass(frozen=True)
+class StdinReadNumber:
+    """Phase 7c: `Escuchá un número en el <name>.` — read an int from stdin."""
+
+    name: str
+
+
+@dataclass(frozen=True)
 class WhileLoop:
     """Bounded while-loop: `Mientras <condition>, hacé <imperative>`.
 
@@ -435,6 +610,7 @@ Statement = Union[
     BindingSerPlural,
     BindingEstar,
     MutationCommand,
+    MutationSequence,      # Phase 7a
     DecirCommand,
     DecirPluralCommand,
     DecirExpr,
@@ -442,9 +618,13 @@ Statement = Union[
     ImperativeCall,
     DeferredBinding,
     WhileLoop,
+    IfStatement,           # Phase 7a
     FunctionDef,
     CliticImperativeCall,
     AspectMarkedOperation,
+    ListIndexSet,          # Phase 7c
+    StdinReadLine,         # Phase 7c
+    StdinReadNumber,       # Phase 7c
 ]
 
 

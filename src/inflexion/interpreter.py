@@ -102,7 +102,10 @@ from .ast import (
     BindingEstar,
     BindingSer,
     BindingSerPlural,
+    CharCode,
     CliticImperativeCall,
+    CodeToChar,
+    ComparisonCondition,
     Condition,
     DecirCommand,
     DecirExpr,
@@ -115,14 +118,24 @@ from .ast import (
     FunctionCall,
     FunctionDef,
     Identifier,
+    IfExpression,
+    IfStatement,
     ImperativeCall,
     IntLit,
+    ListIndexGet,
+    ListIndexSet,
     ListLit,
     MutationCommand,
+    MutationSequence,
     NegatedCondition,
     Program,
     Reduction,
     Statement,
+    StdinReadLine,
+    StdinReadNumber,
+    StringCharAt,
+    StringChars,
+    StringLen,
     StringLit,
     WhileLoop,
 )
@@ -312,6 +325,31 @@ class Environment:
                 f"`La función {name}, que toma …, es ….`."
             )
         return root.functions[name]
+
+    def read_stdin_line(self) -> str:
+        """Read the next line from the stdin stream (Phase 7c).
+
+        The root environment holds the stdin line buffer. Subclasses /
+        callers supply it via the `stdin_lines` field. Returns an empty
+        string when the buffer is exhausted (EOF behaviour).
+
+        Phase 7c wires this to `run_source(source, stdin=...)`. Until
+        then, calling it raises so the error is explicit.
+        """
+        root = self._root()
+        if not hasattr(root, "_stdin_lines"):
+            raise InflexionRuntimeError(
+                "`Escuchá` requires stdin to be supplied. "
+                "Pass `stdin=...` to `run_source()`."
+            )
+        lines: list[str] = root._stdin_lines  # type: ignore[attr-defined]
+        pos_attr = "_stdin_pos"
+        pos: int = getattr(root, pos_attr, 0)
+        if pos >= len(lines):
+            return ""
+        line = lines[pos]
+        setattr(root, pos_attr, pos + 1)
+        return line
 
     def child_scope(self) -> "Environment":
         """Construct a fresh child scope rooted at this env (Phase 5)."""
@@ -664,7 +702,106 @@ def _eval_expr(expr: Expr, env: Environment) -> object:
         return _eval_function_call(expr, env)
     if isinstance(expr, Reduction):
         return _eval_reduction(expr, env)
+    # Phase 7b: if-then-else expression.
+    if isinstance(expr, IfExpression):
+        if _eval_comparison_condition(expr.condition, env):
+            return _eval_expr(expr.then_value, env)
+        return _eval_expr(expr.else_value, env)
+    # Phase 7c: string operations.
+    if isinstance(expr, StringLen):
+        s = _eval_expr(expr.target, env)
+        if not isinstance(s, str):
+            raise InflexionRuntimeError(
+                f"`el largo de` requires a string; got {s!r}."
+            )
+        return len(s)
+    if isinstance(expr, StringCharAt):
+        idx = _eval_expr(expr.index, env)
+        s = _eval_expr(expr.target, env)
+        if not isinstance(s, str):
+            raise InflexionRuntimeError(
+                f"`el carácter N de` requires a string; got {s!r}."
+            )
+        if not isinstance(idx, int):
+            raise InflexionRuntimeError(
+                f"`el carácter N de` index must be an integer; got {idx!r}."
+            )
+        if idx < 1 or idx > len(s):
+            raise InflexionRuntimeError(
+                f"`el carácter {idx} de` is out of range for string of length {len(s)}."
+            )
+        return s[idx - 1]  # 1-indexed
+    if isinstance(expr, CharCode):
+        ch = _eval_expr(expr.target, env)
+        if not isinstance(ch, str) or len(ch) != 1:
+            raise InflexionRuntimeError(
+                f"`el código de` requires a single-character string; got {ch!r}."
+            )
+        return ord(ch)
+    if isinstance(expr, CodeToChar):
+        code = _eval_expr(expr.code, env)
+        if not isinstance(code, int):
+            raise InflexionRuntimeError(
+                f"`el carácter del código` requires an integer; got {code!r}."
+            )
+        return chr(code)
+    if isinstance(expr, StringChars):
+        s = _eval_expr(expr.target, env)
+        if not isinstance(s, str):
+            raise InflexionRuntimeError(
+                f"`los caracteres de` requires a string; got {s!r}."
+            )
+        return tuple(s)  # tuple of single-char strings
+    if isinstance(expr, ListIndexGet):
+        idx = _eval_expr(expr.index, env)
+        lst = _eval_expr(expr.target, env)
+        if not isinstance(lst, (tuple, list)):
+            raise InflexionRuntimeError(
+                f"`el N-ésimo de` requires a list; got {lst!r}."
+            )
+        if not isinstance(idx, int):
+            raise InflexionRuntimeError(
+                f"`el N-ésimo de` index must be an integer; got {idx!r}."
+            )
+        if idx < 1 or idx > len(lst):
+            raise InflexionRuntimeError(
+                f"`el {idx}-ésimo de` is out of range for list of length {len(lst)}."
+            )
+        return lst[idx - 1]  # 1-indexed
     raise InflexionRuntimeError(f"Unsupported expression: {expr!r}")
+
+
+def _eval_comparison_condition(cond: ComparisonCondition, env: Environment) -> bool:
+    """Evaluate a Phase 7a indicative comparison condition.
+
+    The left-hand side is looked up by name; the right-hand side is
+    evaluated as an Expr in the current scope. Comparison operators:
+
+        ``"es"``            Python ``==``
+        ``"no_es"``         Python ``!=``
+        ``"mayor_que"``     Python ``>``
+        ``"menor_que"``     Python ``<``
+        ``"divisible_por"`` ``lhs % rhs == 0``
+    """
+    lhs = env.lookup(cond.name)
+    rhs = _eval_expr(cond.value, env)
+    if cond.op == "es":
+        return lhs == rhs
+    if cond.op == "no_es":
+        return lhs != rhs
+    if cond.op == "mayor_que":
+        return lhs > rhs  # type: ignore[operator]
+    if cond.op == "menor_que":
+        return lhs < rhs  # type: ignore[operator]
+    if cond.op == "divisible_por":
+        if not isinstance(rhs, int) or rhs == 0:
+            raise InflexionRuntimeError(
+                f"`es divisible por` requires a non-zero integer divisor; got {rhs!r}."
+            )
+        return int(lhs) % rhs == 0  # type: ignore[arg-type]
+    raise InflexionRuntimeError(  # pragma: no cover — parser-filtered
+        f"Unknown comparison op: {cond.op!r}"
+    )
 
 
 def _eval_condition(cond: Condition, env: Environment) -> bool:
@@ -857,6 +994,12 @@ def _execute_statement(
         fired = env.mutate(stmt.name, _eval_expr(stmt.value, env))
         for action in fired:
             _execute_statement(action, env, out)
+    elif isinstance(stmt, MutationSequence):
+        # Phase 7a: sequential semantics — each mutation sees prior ones.
+        for mut in stmt.mutations:
+            fired = env.mutate(mut.name, _eval_expr(mut.value, env))
+            for action in fired:
+                _execute_statement(action, env, out)
     elif isinstance(stmt, DecirCommand):
         # Phase 6: route through `_eval_expr(Identifier)` so the
         # diminutive / augmentative lookup fallback fires for forms
@@ -887,6 +1030,55 @@ def _execute_statement(
         env.register_observer(
             stmt.name, _eval_expr(stmt.trigger_value, env), stmt.action
         )
+    elif isinstance(stmt, IfStatement):
+        # Phase 7a: try each arm in order; execute the first matching body.
+        executed = False
+        for cond, body in stmt.arms:
+            if _eval_comparison_condition(cond, env):
+                _execute_statement(body, env, out)
+                executed = True
+                break
+        if not executed and stmt.else_body is not None:
+            _execute_statement(stmt.else_body, env, out)
+    elif isinstance(stmt, ListIndexSet):
+        # Phase 7c: 1-indexed set on an estar-bound list (mutates in place).
+        idx = _eval_expr(stmt.index, env)
+        new_val = _eval_expr(stmt.value, env)
+        lst = env.lookup(stmt.list_name)
+        if not isinstance(lst, list):
+            raise InflexionRuntimeError(
+                f"`hacé que el N-ésimo de {stmt.list_name!r} esté en …` requires a "
+                f"mutable list (estar-bound); got {lst!r}."
+            )
+        if not isinstance(idx, int):
+            raise InflexionRuntimeError(
+                f"List index must be an integer; got {idx!r}."
+            )
+        if idx < 1 or idx > len(lst):
+            raise InflexionRuntimeError(
+                f"Index {idx} out of range for list of length {len(lst)}."
+            )
+        lst[idx - 1] = new_val  # 1-indexed, mutate in-place
+    elif isinstance(stmt, StdinReadLine):
+        # Phase 7c: read a line from the stdin stream in the environment.
+        line = env.read_stdin_line()
+        # Bind as estar (mutable) so the value can be overwritten in loops.
+        if stmt.name in env.cells:
+            env.mutate(stmt.name, line)
+        else:
+            env.bind_estar(stmt.name, line)
+    elif isinstance(stmt, StdinReadNumber):
+        line = env.read_stdin_line()
+        try:
+            number = int(line.strip())
+        except ValueError as exc:
+            raise InflexionRuntimeError(
+                f"`Escuchá un número` could not parse {line!r} as an integer."
+            ) from exc
+        if stmt.name in env.cells:
+            env.mutate(stmt.name, number)
+        else:
+            env.bind_estar(stmt.name, number)
     elif isinstance(stmt, WhileLoop):
         # Bounded re-evaluation of the condition with each iteration.
         # Observers attached to the loop variable still fire from

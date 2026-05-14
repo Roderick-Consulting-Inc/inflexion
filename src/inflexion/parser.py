@@ -47,7 +47,10 @@ from .ast import (
     BindingEstar,
     BindingSer,
     BindingSerPlural,
+    CharCode,
     CliticImperativeCall,
+    CodeToChar,
+    ComparisonCondition,
     Condition,
     DecirCommand,
     DecirExpr,
@@ -60,14 +63,24 @@ from .ast import (
     FunctionCall,
     FunctionDef,
     Identifier,
+    IfExpression,
+    IfStatement,
     ImperativeCall,
     IntLit,
+    ListIndexGet,
+    ListIndexSet,
     ListLit,
     MutationCommand,
+    MutationSequence,
     NegatedCondition,
     Program,
     Reduction,
     Statement,
+    StdinReadLine,
+    StdinReadNumber,
+    StringCharAt,
+    StringChars,
+    StringLen,
     StringLit,
     WhileLoop,
 )
@@ -593,6 +606,286 @@ def _parse_condition(tokens: list[Token], strings: list[str]) -> Condition:
     return EstaCondition(name=noun.lower, trigger_value=value)
 
 
+def _parse_comparison_condition(
+    tokens: list[Token], strings: list[str]
+) -> ComparisonCondition:
+    """Parse an indicative comparison: `el <noun> <op> <value>`.
+
+    Phase 7a condition forms (all indicative, not subjunctive):
+        - `el x es N`              equality           → op ``"es"``
+        - `el x no es N`           inequality         → op ``"no_es"``
+        - `el x es mayor que N`    strictly greater   → op ``"mayor_que"``
+        - `el x es menor que N`    strictly less      → op ``"menor_que"``
+        - `el x es divisible por N` divisibility      → op ``"divisible_por"``
+    """
+    if len(tokens) < 3:
+        raise InflexionParseError(
+            f"Comparison condition expects `<article> <noun> <op> <value>`; "
+            f"got {[t.text for t in tokens]}"
+        )
+    article, noun, *rest = tokens
+    if article.lower not in _SINGULAR_ARTICLES:
+        raise InflexionParseError(
+            f"Comparison condition expects a singular article; got {article.text!r}"
+        )
+    if not rest:
+        raise InflexionParseError("Comparison condition: missing operator and value.")
+
+    # Dispatch on the operator form.
+    head = rest[0].lower
+
+    # `no es` — inequality.
+    if head == "no" and len(rest) >= 2 and rest[1].lower == "es":
+        value_tokens = rest[2:]
+        if not value_tokens:
+            raise InflexionParseError(
+                f"`el {noun.text} no es` is missing its comparison value."
+            )
+        return ComparisonCondition(
+            name=noun.lower, op="no_es", value=_parse_value(value_tokens, strings)
+        )
+
+    # `es` — various forms.
+    if head == "es":
+        remainder = rest[1:]  # tokens after `es`
+        # `es mayor que N`
+        if (
+            len(remainder) >= 3
+            and remainder[0].lower == "mayor"
+            and remainder[1].lower == "que"
+        ):
+            return ComparisonCondition(
+                name=noun.lower,
+                op="mayor_que",
+                value=_parse_value(remainder[2:], strings),
+            )
+        # `es menor que N`
+        if (
+            len(remainder) >= 3
+            and remainder[0].lower == "menor"
+            and remainder[1].lower == "que"
+        ):
+            return ComparisonCondition(
+                name=noun.lower,
+                op="menor_que",
+                value=_parse_value(remainder[2:], strings),
+            )
+        # `es divisible por N`
+        if (
+            len(remainder) >= 3
+            and remainder[0].lower == "divisible"
+            and remainder[1].lower == "por"
+        ):
+            return ComparisonCondition(
+                name=noun.lower,
+                op="divisible_por",
+                value=_parse_value(remainder[2:], strings),
+            )
+        # Plain `es N` — equality.
+        if not remainder:
+            raise InflexionParseError(
+                f"`el {noun.text} es` is missing its comparison value."
+            )
+        return ComparisonCondition(
+            name=noun.lower, op="es", value=_parse_value(remainder, strings)
+        )
+
+    raise InflexionParseError(
+        f"Unrecognised comparison operator after `{article.text} {noun.text}`: "
+        f"{rest[0].text!r}. Expected `es`, `no es`, `es mayor que`, "
+        f"`es menor que`, or `es divisible por`."
+    )
+
+
+def _split_on_semicolon(tokens: list[Token]) -> list[list[Token]]:
+    """Split a token list on `;` boundaries (Phase 7a Si-chain separator)."""
+    parts: list[list[Token]] = []
+    current: list[Token] = []
+    for tok in tokens:
+        if tok.text == ";":
+            parts.append(current)
+            current = []
+        else:
+            current.append(tok)
+    parts.append(current)
+    return parts
+
+
+def _split_y_que(tokens: list[Token]) -> list[list[Token]]:
+    """Split on `y que` boundaries (Phase 7a mutation-sequence separator).
+
+    The split is conservative: only `y` immediately followed by `que`
+    triggers a split. In value expressions, `y` does not appear (the
+    arithmetic operators are `más`, `menos`, `por`), so this split is
+    unambiguous in the mutation-body context where it is called.
+    """
+    segments: list[list[Token]] = []
+    current: list[Token] = []
+    i = 0
+    while i < len(tokens):
+        if (
+            tokens[i].lower == "y"
+            and i + 1 < len(tokens)
+            and tokens[i + 1].lower == "que"
+        ):
+            segments.append(current)
+            current = []
+            i += 2  # skip `y que`
+        else:
+            current.append(tokens[i])
+            i += 1
+    segments.append(current)
+    return segments
+
+
+def _parse_mutation_continuation(
+    tokens: list[Token], strings: list[str]
+) -> MutationCommand:
+    """Parse the `y que` continuation form: `el <noun> esté en <value>`.
+
+    The leading `hacé` and `que` are absent — the first mutation in a
+    sequence carries them; subsequent ones start directly with the article.
+    """
+    if len(tokens) < 5:
+        raise InflexionParseError(
+            f"`y que` continuation expects `<article> <noun> esté en <value>`; "
+            f"got {[t.text for t in tokens]}"
+        )
+    article, noun, este, en, *value_tokens = tokens
+    if article.lower not in _SINGULAR_ARTICLES:
+        raise InflexionParseError(
+            f"`y que` continuation expects a singular article; got {article.text!r}"
+        )
+    if not _is_estar_subjunctive(este):
+        raise InflexionParseError(
+            f"`y que` continuation expects subjunctive `esté`; got {este.text!r}"
+        )
+    if en.lower != "en":
+        raise InflexionParseError(
+            f"`y que` continuation expects `en`; got {en.text!r}"
+        )
+    if not value_tokens:
+        raise InflexionParseError(
+            f"`y que el {noun.text} esté en` is missing its value."
+        )
+    return MutationCommand(name=noun.lower, value=_parse_value(value_tokens, strings))
+
+
+def _parse_mutation_sequence(
+    tokens: list[Token], strings: list[str]
+) -> "Statement":
+    """Parse `hacé que el X esté en V [y que el Y esté en W ...]`.
+
+    Returns a `MutationCommand` when there is a single clause, or a
+    `MutationSequence` when there are two or more `y que`-joined clauses.
+    Sequential semantics are committed in the Phase 7a commit message:
+    each RHS is evaluated with the current (post-prior-mutations)
+    environment, matching Spanish comma-list read order.
+    """
+    segments = _split_y_que(tokens)
+    first = _parse_mutation(segments[0], strings)
+    if len(segments) == 1:
+        return first
+    rest = [_parse_mutation_continuation(seg, strings) for seg in segments[1:]]
+    return MutationSequence(mutations=(first, *rest))
+
+
+def _parse_body_imperative(
+    tokens: list[Token], strings: list[str]
+) -> "Statement":
+    """Parse a single imperative for use as a `Si`-branch or loop body.
+
+    Handles both the mutation form (`Hacé que …`) and the decir/enclitic
+    forms handled by `_parse_imperative_tokens`.
+    """
+    if not tokens:
+        raise InflexionParseError("Empty imperative body.")
+    if _is_hace_imperative(tokens[0]):
+        # Note: Si-branch bodies do NOT get the y-que sequence extension
+        # (that is reserved for Mientras bodies per Phase 7a spec).
+        return _parse_mutation(tokens, strings)
+    return _parse_imperative_tokens(tokens, strings)
+
+
+def _parse_si(sentence: list[Token], strings: list[str]) -> IfStatement:
+    """Parse `Si <cond>, <body>; sino, si <cond>, <body>; sino, <body>`.
+
+    The sentence is already split from the global token stream at `.`;
+    internal `;` delimit the arms. The first token is `si`.
+
+    Grammar summary:
+        Si-stmt ::= `si` cond `,` body (`;` `sino` `,` (`si` cond `,` body | body))*
+    """
+    # Split the whole sentence on `;` to get each arm's token slice.
+    parts = _split_on_semicolon(sentence)
+    # parts[0] starts with `si`; parts[1:] start with `sino`.
+    if not parts[0] or parts[0][0].lower != "si":
+        raise InflexionParseError(  # pragma: no cover — caller filters
+            f"Expected `Si`, got {parts[0][0].text!r}"
+        )
+
+    arms: list[tuple[ComparisonCondition, Statement]] = []
+    else_body: Statement | None = None
+
+    # --- First arm: `si COND, BODY` ---
+    first_part = parts[0][1:]  # drop the leading `si`
+    comma_idx = next(
+        (j for j, t in enumerate(first_part) if t.text == ","), None
+    )
+    if comma_idx is None:
+        raise InflexionParseError("`Si` branch requires `,` after condition.")
+    cond_tokens = first_part[:comma_idx]
+    body_tokens = first_part[comma_idx + 1 :]
+    arms.append(
+        (
+            _parse_comparison_condition(cond_tokens, strings),
+            _parse_body_imperative(body_tokens, strings),
+        )
+    )
+
+    # --- Remaining parts: `sino, si COND, BODY` or `sino, BODY` ---
+    for part in parts[1:]:
+        if not part:
+            continue
+        if part[0].lower != "sino":
+            raise InflexionParseError(
+                f"Expected `sino` after `;` in `Si`-chain; got {part[0].text!r}"
+            )
+        # Expect a comma immediately after `sino`.
+        if len(part) < 2 or part[1].text != ",":
+            _got = repr(part[1].text) if len(part) > 1 else "'<eof>'"
+            raise InflexionParseError(
+                f"Expected `,` after `sino`; got {_got}"
+            )
+        after_sino = part[2:]  # tokens after `sino,`
+        if not after_sino:
+            raise InflexionParseError("`sino` has no body.")
+
+        if after_sino[0].lower == "si":
+            # elif arm: `sino, si COND, BODY`
+            inner = after_sino[1:]  # drop the inner `si`
+            comma_idx2 = next(
+                (j for j, t in enumerate(inner) if t.text == ","), None
+            )
+            if comma_idx2 is None:
+                raise InflexionParseError(
+                    "`sino, si` branch requires `,` after condition."
+                )
+            cond_tokens2 = inner[:comma_idx2]
+            body_tokens2 = inner[comma_idx2 + 1 :]
+            arms.append(
+                (
+                    _parse_comparison_condition(cond_tokens2, strings),
+                    _parse_body_imperative(body_tokens2, strings),
+                )
+            )
+        else:
+            # else branch: `sino, BODY`
+            else_body = _parse_body_imperative(after_sino, strings)
+
+    return IfStatement(arms=tuple(arms), else_body=else_body)
+
+
 def _parse_mientras(sentence: list[Token], strings: list[str]) -> WhileLoop:
     """Parse `Mientras el <noun> [no] esté en <value>, <imperative>`.
 
@@ -627,7 +920,9 @@ def _parse_mientras(sentence: list[Token], strings: list[str]) -> WhileLoop:
     # body opens with a hacé imperative, otherwise we fall through to
     # the general imperative path so `Decí …` bodies still work.
     if _is_hace_imperative(tail[0]):
-        body: Statement = _parse_mutation(tail, strings)
+        # Phase 7a: use _parse_mutation_sequence so `y que` multi-clause
+        # bodies are accepted in addition to the single-mutation form.
+        body: Statement = _parse_mutation_sequence(tail, strings)
     else:
         body = _parse_imperative_tokens(tail, strings)
     return WhileLoop(condition=condition, body=body)
@@ -1202,7 +1497,10 @@ def parse(tokens: list[Token], strings: list[str]) -> Program:
     statements: list[Statement] = []
     for sentence in _split_sentences(tokens):
         first = sentence[0]
-        if first.lower == "cuando":
+        if first.lower == "si":
+            # Phase 7a: conditional dispatch `Si … , … ; sino, …`
+            statements.append(_parse_si(sentence, strings))
+        elif first.lower == "cuando":
             statements.append(_parse_cuando(sentence, strings))
         elif first.lower == "mientras":
             statements.append(_parse_mientras(sentence, strings))
