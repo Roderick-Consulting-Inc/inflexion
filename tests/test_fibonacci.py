@@ -127,3 +127,77 @@ def test_fibonacci_iterativo_sequential_swap_produces_fib6() -> None:
         "Decí el a.\n"
     )
     assert inflexion.run_source(source) == "8\n"
+
+
+# ---------------------------------------------------------------------------
+# fibonacci-recursivo tests (Phase 7b)
+# ---------------------------------------------------------------------------
+
+RECURSIVO = REPO_ROOT / "examples" / "fibonacci-recursivo.infl"
+
+# Shared inline recursive definition used by base-case tests below.
+_FIB_DEF = (
+    "La función fib, que toma un n, es "
+    "si el n es 0, entonces 0; "
+    "sino, si el n es 1, entonces 1; "
+    "sino, fib (el n menos 1) más fib (el n menos 2).\n"
+)
+
+
+def test_fibonacci_recursivo_run_file() -> None:
+    """Programmatic API: fibonacci-recursivo.infl prints F(10) = 55."""
+    assert inflexion.run_file(RECURSIVO) == EXPECTED_FIB10
+
+
+def test_fibonacci_recursivo_run_source() -> None:
+    """Source-string API: same recursive definition via inline source."""
+    source = _FIB_DEF + "El resultado es fib 10.\nDecí el resultado.\n"
+    assert inflexion.run_source(source) == EXPECTED_FIB10
+
+
+def test_fibonacci_recursivo_cli() -> None:
+    """CLI smoke: `python -m inflexion run examples/fibonacci-recursivo.infl`."""
+    result = subprocess.run(
+        [sys.executable, "-m", "inflexion", "run", str(RECURSIVO)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout == EXPECTED_FIB10
+    assert result.returncode == 0
+
+
+def test_fibonacci_recursivo_integer_not_float() -> None:
+    """F(10) must render as integer 55, not float 55.0."""
+    result = inflexion.run_file(RECURSIVO)
+    assert "." not in result, f"Expected integer output, got: {result!r}"
+    assert result.strip() == "55"
+
+
+def test_fibonacci_recursivo_base_case_zero() -> None:
+    """fib(0) = 0 — first base case of the recursive definition."""
+    source = _FIB_DEF + "El resultado es fib 0.\nDecí el resultado.\n"
+    assert inflexion.run_source(source) == "0\n"
+
+
+def test_fibonacci_recursivo_base_case_one() -> None:
+    """fib(1) = 1 — second base case of the recursive definition."""
+    source = _FIB_DEF + "El resultado es fib 1.\nDecí el resultado.\n"
+    assert inflexion.run_source(source) == "1\n"
+
+
+def test_fibonacci_recursivo_fib2() -> None:
+    """fib(2) = fib(1) + fib(0) = 1 — first non-trivial recursive call."""
+    source = _FIB_DEF + "El resultado es fib 2.\nDecí el resultado.\n"
+    assert inflexion.run_source(source) == "1\n"
+
+
+def test_fibonacci_recursivo_fib6() -> None:
+    """fib(6) = 8 — agrees with the iterativo spot-check at six steps."""
+    source = _FIB_DEF + "El resultado es fib 6.\nDecí el resultado.\n"
+    assert inflexion.run_source(source) == "8\n"
+
+
+def test_fibonacci_iterativo_and_recursivo_agree() -> None:
+    """Both variants produce the same value for F(10)."""
+    assert inflexion.run_file(ITERATIVO) == inflexion.run_file(RECURSIVO)
