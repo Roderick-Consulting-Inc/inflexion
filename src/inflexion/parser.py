@@ -327,6 +327,7 @@ def _is_arg_starter(tok: Token) -> bool:
     A function-call argument is one of:
         - `<article> <noun>`         (articled identifier)
         - `[ ... ]`                  (list literal)
+        - `( <expr> )`               (parenthesised expression, Phase 7b)
         - a numeric / string literal
         - a bare identifier that is NOT an arithmetic operator, a clitic
           pronoun, punctuation, an article on its own, or another verb.
@@ -334,9 +335,9 @@ def _is_arg_starter(tok: Token) -> bool:
     Phase 5 is conservative — when in doubt, an unrecognised token ends
     the arg loop rather than being adopted as a bare-identifier arg.
     """
-    if tok.is_punct:
+    if tok.is_punct and tok.text not in {"(", "["}:
         return False
-    if tok.text == "[":
+    if tok.text in {"[", "("}:
         return True
     if tok.lower in _ARITHMETIC_OPS:
         return False
@@ -399,6 +400,199 @@ def _parse_reduction(
     )
 
 
+import re as _re
+
+# Ordinal pattern for `el N-ésimo de <list>` (Phase 7c list indexing).
+# Matches: `5-ésimo`, `3esimo`, `1ésima` etc.
+_ORDINAL_RE = _re.compile(r"^(\d+)[-–]?[eé]simo$", _re.IGNORECASE)
+
+# Named ordinal shortcuts (Phase 7c).
+_NAMED_ORDINALS: dict[str, int] = {
+    "primero": 1,
+    "primera": 1,
+    "segundo": 2,
+    "segunda": 2,
+}
+
+# Keywords that mark Phase 7c `el`-phrase operations (singular article opens).
+_LARGO = "largo"
+_CARACTER = "carácter"
+_CODIGO = "código"
+_CARACTERES = "caracteres"
+
+
+def _try_parse_el_phrase(
+    tokens: list[Token], strings: list[str]
+) -> "tuple[Expr, int] | None":
+    """Try to parse a Phase 7c `el`-opened special phrase.
+
+    Returns ``(expr, tokens_consumed)`` if a special form is matched,
+    ``None`` if the token sequence is not a Phase 7c phrase (so the caller
+    falls through to the generic article handler which produces an Identifier).
+
+    Special phrases (all start with `el`):
+        ``el largo de <expr>``               → StringLen
+        ``el carácter N de <expr>``          → StringCharAt (1-indexed)
+        ``el código de <expr>``              → CharCode
+        ``el carácter del código <expr>``    → CodeToChar
+        ``el N-ésimo de <expr>``             → ListIndexGet (1-indexed, ordinal)
+        ``el primero de <expr>``             → ListIndexGet(1, ...)
+        ``el segundo de <expr>``             → ListIndexGet(2, ...)
+    """
+    # Must begin with `el` followed by at least one more token.
+    if len(tokens) < 2:
+        return None
+    # el largo de <expr>
+    if tokens[1].lower == _LARGO and len(tokens) >= 3 and tokens[2].lower == "de":
+        target, consumed = _parse_arith_atom(tokens[3:], strings)
+        return StringLen(target=target), 3 + consumed
+    # el código de <expr>
+    if tokens[1].lower == _CODIGO and len(tokens) >= 3 and tokens[2].lower == "de":
+        target, consumed = _parse_arith_atom(tokens[3:], strings)
+        return CharCode(target=target), 3 + consumed
+    # el carácter del código <expr>
+    if (
+        tokens[1].lower == _CARACTER
+        and len(tokens) >= 4
+        and tokens[2].lower == "del"
+        and tokens[3].lower == _CODIGO
+    ):
+        code_expr, consumed = _parse_arith_atom(tokens[4:], strings)
+        return CodeToChar(code=code_expr), 4 + consumed
+    # el carácter N de <expr>  — where N is a value expression (typically
+    # numeric literal or identifier).  We look for the word `de` to delimit
+    # the index from the string target.
+    if tokens[1].lower == _CARACTER and len(tokens) >= 4:
+        # find `de` after the index expression — greedy: we try to parse the
+        # index as a single atom, then expect `de`.
+        try:
+            idx_expr, idx_consumed = _parse_arith_atom(tokens[2:], strings)
+        except (SyntaxError, InflexionParseError):
+            return None
+        de_pos = 2 + idx_consumed
+        if de_pos >= len(tokens) or tokens[de_pos].lower != "de":
+            return None
+        target, tgt_consumed = _parse_arith_atom(tokens[de_pos + 1 :], strings)
+        return StringCharAt(index=idx_expr, target=target), de_pos + 1 + tgt_consumed
+    # el N-ésimo de <expr>  — ordinal form (single token like `5-ésimo`).
+    if len(tokens) >= 4 and tokens[2].lower == "de":
+        idx_tok = tokens[1]
+        if _ORDINAL_RE.match(idx_tok.text):
+            n = int(_ORDINAL_RE.match(idx_tok.text).group(1))  # type: ignore[union-attr]
+            target, consumed = _parse_arith_atom(tokens[3:], strings)
+            return ListIndexGet(index=IntLit(n), target=target), 3 + consumed
+        if idx_tok.lower in _NAMED_ORDINALS:
+            n = _NAMED_ORDINALS[idx_tok.lower]
+            target, consumed = _parse_arith_atom(tokens[3:], strings)
+            return ListIndexGet(index=IntLit(n), target=target), 3 + consumed
+    # el N-ésimo de <expr>  — spaCy splits `5-ésimo` as [5, -, ésimo].
+    if (
+        len(tokens) >= 6
+        and tokens[1].is_integer_literal
+        and tokens[2].text == "-"
+        and tokens[3].lower in ("ésimo", "esimo", "ésima", "esima")
+        and tokens[4].lower == "de"
+    ):
+        n = int(tokens[1].text)
+        target, consumed = _parse_arith_atom(tokens[5:], strings)
+        return ListIndexGet(index=IntLit(n), target=target), 5 + consumed
+    return None
+
+
+def _find_matching_paren(tokens: list[Token], start: int = 0) -> int:
+    """Return the index of the `)` that matches the `(` at `tokens[start]`.
+
+    Raises `InflexionParseError` if the parenthesis is unmatched.
+    """
+    if tokens[start].text != "(":
+        raise InflexionParseError(  # pragma: no cover
+            f"Expected `(` at position {start}; got {tokens[start].text!r}"
+        )
+    depth = 0
+    for i in range(start, len(tokens)):
+        if tokens[i].text == "(":
+            depth += 1
+        elif tokens[i].text == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    raise InflexionParseError(
+        f"Unmatched `(` in expression: {[t.text for t in tokens[start:]]}"
+    )
+
+
+def _parse_if_expression(
+    tokens: list[Token], strings: list[str]
+) -> tuple[IfExpression, int]:
+    """Parse `si <cond>, entonces <then>; sino, <else>` in expression position.
+
+    Phase 7b: distinct from the statement form (`IfStatement`) — the keyword
+    `entonces` marks the then-branch and signals expression context. Returns
+    ``(IfExpression, tokens_consumed)``.
+
+    The if-expression is greedy: it consumes all tokens from `si` to the end
+    of the token slice supplied by the caller.  This means the if-expression
+    must be the outermost (last) construct in a value context — nesting
+    requires explicit parenthesisation.
+
+    Grammar (informal):
+        si-expr ::= `si` cond-tokens `,` `entonces` then-tokens `;` `sino` `,` else-tokens
+    """
+    # tokens[0] is `si`.
+    # Find the first `,` — it terminates the condition.
+    comma_idx = next(
+        (j for j, t in enumerate(tokens) if t.text == ","), None
+    )
+    if comma_idx is None:
+        raise InflexionParseError(
+            "If-expression: expected `,` after condition (before `entonces`)."
+        )
+    cond_tokens = tokens[1:comma_idx]  # skip `si`
+
+    # tokens[comma_idx + 1] must be `entonces`.
+    entonces_pos = comma_idx + 1
+    if entonces_pos >= len(tokens) or tokens[entonces_pos].lower != "entonces":
+        _got = repr(tokens[entonces_pos].text) if entonces_pos < len(tokens) else "'<eof>'"
+        raise InflexionParseError(
+            f"If-expression: expected `entonces` after `,`; got {_got}."
+        )
+
+    # Find the first `;` after `entonces` — it separates then from sino.
+    semi_idx = next(
+        (j for j in range(entonces_pos + 1, len(tokens)) if tokens[j].text == ";"),
+        None,
+    )
+    if semi_idx is None:
+        raise InflexionParseError(
+            "If-expression: expected `;` between `entonces` branch and `sino`."
+        )
+    then_tokens = tokens[entonces_pos + 1 : semi_idx]
+
+    # After `;`: expect `sino` then `,` then the else-expression.
+    if semi_idx + 1 >= len(tokens) or tokens[semi_idx + 1].lower != "sino":
+        _got2 = repr(tokens[semi_idx + 1].text) if semi_idx + 1 < len(tokens) else "'<eof>'"
+        raise InflexionParseError(
+            f"If-expression: expected `sino` after `;`; got {_got2}."
+        )
+    if semi_idx + 2 >= len(tokens) or tokens[semi_idx + 2].text != ",":
+        _got3 = repr(tokens[semi_idx + 2].text) if semi_idx + 2 < len(tokens) else "'<eof>'"
+        raise InflexionParseError(
+            f"If-expression: expected `,` after `sino`; got {_got3}."
+        )
+    else_tokens = tokens[semi_idx + 3 :]
+
+    if not then_tokens:
+        raise InflexionParseError("If-expression: `entonces` branch is empty.")
+    if not else_tokens:
+        raise InflexionParseError("If-expression: `sino` branch is empty.")
+
+    condition = _parse_comparison_condition(cond_tokens, strings)
+    then_value = _parse_value(then_tokens, strings)
+    else_value = _parse_value(else_tokens, strings)
+
+    return IfExpression(condition=condition, then_value=then_value, else_value=else_value), len(tokens)
+
+
 def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, int]:
     """Parse a single arithmetic operand starting at `tokens[0]`.
 
@@ -416,6 +610,13 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
     if not tokens:
         raise SyntaxError("Expected value, got end of clause.")
     first = tokens[0]
+
+    # Phase 7b: if-then-else expression — `si COND, entonces THEN; sino, ELSE`.
+    # Must be checked before article / identifier handling so `si` is never
+    # accidentally treated as a variable name in value position.
+    if first.lower == "si":
+        return _parse_if_expression(tokens, strings)
+
     # Reduction prefix `el resultado de <verb-inf> <article> <noun>` — check
     # before generic article handling so the longer pattern wins.
     if (
@@ -426,8 +627,38 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
         and _is_infinitive(tokens[3])
     ):
         return _parse_reduction(tokens, strings)
+
+    # Phase 7c: string / list index operations that open with `el` — checked
+    # before the generic article handler so the multi-keyword patterns win.
+    # These are handled in `_parse_arith_atom_el_phrase` to keep this
+    # function readable.
+    if first.lower == "el" and len(tokens) >= 2:
+        el_result = _try_parse_el_phrase(tokens, strings)
+        if el_result is not None:
+            return el_result
+
+    # Phase 7c: `los caracteres de <expr>` — string-to-list conversion.
+    if (
+        first.lower == "los"
+        and len(tokens) >= 3
+        and tokens[1].lower == "caracteres"
+        and tokens[2].lower == "de"
+    ):
+        target, consumed = _parse_arith_atom(tokens[3:], strings)
+        return StringChars(target=target), 3 + consumed
+
     if first.text == "[":
         return _parse_list_literal(tokens, strings)
+
+    # Phase 7b: parenthesised expression — `( <expr> )`.
+    # Enables `fact (el n menos 1)` and `(el a más el b)` grouping.
+    if first.text == "(":
+        end_idx = _find_matching_paren(tokens, 0)
+        inner = tokens[1:end_idx]
+        if not inner:
+            raise InflexionParseError("Empty parenthesised expression `()`.")
+        return _parse_value(inner, strings), end_idx + 1
+
     # Function call: a verb in infinitive form heads a positional arg list.
     # Detected at the atom level so it can appear anywhere a value can.
     if _is_infinitive(first):
@@ -444,6 +675,29 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
         and _is_arg_starter(tokens[1])
     ):
         return _parse_function_call(tokens, strings)
+
+    # Phase 7b: identifier followed by an argument-starter — function call
+    # for names that spaCy does NOT tag as a Spanish infinitive (PROPN / NOUN
+    # heads like `fact`, `fib`, `sign`).
+    #
+    # Guard: we require the next token to be a genuine arg-starter (article,
+    # numeric, string, `[`, `(`) but NOT an arithmetic operator so that
+    # `el r más 1` or bare-identifier arithmetic stays unaffected.
+    if (
+        not first.is_punct
+        and not first.is_string_placeholder
+        and not first.is_numeric
+        and first.lower not in _SINGULAR_ARTICLES
+        and first.lower not in _PLURAL_ARTICLES
+        and first.lower not in _ARITHMETIC_OPS
+        and first.lower != "si"   # already handled as if-expression
+        and first.lower != "entonces"
+        and first.lower != "sino"
+        and len(tokens) >= 2
+        and _is_arg_starter(tokens[1])
+    ):
+        return _parse_function_call(tokens, strings)
+
     if first.lower in _SINGULAR_ARTICLES or first.lower in _PLURAL_ARTICLES:
         if len(tokens) < 2:
             raise SyntaxError(
@@ -1492,6 +1746,110 @@ def _parse_aspect_marked(
     )
 
 
+def _try_parse_list_index_set(
+    sentence: list[Token], strings: list[str]
+) -> "ListIndexSet | None":
+    """Try to parse `Hacé que el N-ésimo de <list-name> esté en <value>`.
+
+    Returns a `ListIndexSet` when the sentence is an indexed-list mutation,
+    or ``None`` when it is a regular `MutationCommand`-shaped sentence.
+
+    Handles both the single-token ordinal form (``5-ésimo``) and the
+    spaCy-split form (``5``, ``-``, ``ésimo``), as well as named shortcuts
+    (``primero``, ``segundo``).
+
+    Phase 7c addition.
+    """
+    # Layout varies depending on whether spaCy keeps the ordinal as one token.
+    # We look for the pattern:  [hacé, que, el, <ordinal>, de, <art>, <list-name>, esté, en, <value…>]
+    # OR split form:            [hacé, que, el, N, -, ésimo, de, <art>, <list-name>, esté, en, <value…>]
+    if len(sentence) < 10:
+        return None
+    if not _is_hace_imperative(sentence[0]):
+        return None
+    if sentence[1].lower != "que":
+        return None
+    if sentence[2].lower not in _SINGULAR_ARTICLES:
+        return None
+
+    ordinal_tok = sentence[3]
+
+    # Single-token ordinal: `5-ésimo`
+    if _ORDINAL_RE.match(ordinal_tok.text):
+        n = int(_ORDINAL_RE.match(ordinal_tok.text).group(1))  # type: ignore[union-attr]
+        de_idx = 4
+    elif ordinal_tok.lower in _NAMED_ORDINALS:
+        n = _NAMED_ORDINALS[ordinal_tok.lower]
+        de_idx = 4
+    # Split form: [N, -, ésimo]
+    elif (
+        ordinal_tok.is_integer_literal
+        and len(sentence) >= 11
+        and sentence[4].text == "-"
+        and sentence[5].lower in ("ésimo", "esimo", "ésima", "esima")
+    ):
+        n = int(ordinal_tok.text)
+        de_idx = 6
+    else:
+        return None  # not an indexed-list mutation
+
+    # After the ordinal: `de <article> <list-name>`
+    if de_idx + 2 >= len(sentence):
+        return None
+    if sentence[de_idx].lower != "de":
+        return None
+    if sentence[de_idx + 1].lower not in {*_SINGULAR_ARTICLES, *_PLURAL_ARTICLES}:
+        return None
+    list_name = sentence[de_idx + 2].lower
+    # Then: `esté en <value>`
+    este_idx = de_idx + 3
+    if este_idx + 2 >= len(sentence):
+        return None
+    if not _is_estar_subjunctive(sentence[este_idx]):
+        return None
+    if sentence[este_idx + 1].lower != "en":
+        return None
+    value_tokens = sentence[este_idx + 2 :]
+    if not value_tokens:
+        return None
+    value = _parse_value(value_tokens, strings)
+    return ListIndexSet(index=IntLit(n), list_name=list_name, value=value)
+
+
+def _parse_escucha(sentence: list[Token], strings: list[str]) -> "Statement":
+    """Parse `Escuchá una línea en el <name>` or `Escuchá un número en el <name>`.
+
+    Phase 7c stdin binding. Returns `StdinReadLine` or `StdinReadNumber`.
+    Layout: [escuchá, una/un, línea/número, en, el, <name>]
+    """
+    if len(sentence) < 6:
+        raise InflexionParseError(
+            f"Phase 7c `Escuchá` expects `Escuchá una línea en el <name>` or "
+            f"`Escuchá un número en el <name>`; got {[t.text for t in sentence]}"
+        )
+    _esc, art, kind, en, article, name_tok = sentence[:6]
+    if art.lower not in _SINGULAR_ARTICLES:
+        raise InflexionParseError(
+            f"`Escuchá` expects indefinite article (`una`/`un`); got {art.text!r}"
+        )
+    if en.lower != "en":
+        raise InflexionParseError(
+            f"`Escuchá … en el <name>`: expected `en`; got {en.text!r}"
+        )
+    if article.lower not in _SINGULAR_ARTICLES:
+        raise InflexionParseError(
+            f"`Escuchá … en el <name>`: expected singular article; got {article.text!r}"
+        )
+    kind_lower = kind.lower
+    if kind_lower in {"línea", "linea"}:
+        return StdinReadLine(name=name_tok.lower)
+    if kind_lower in {"número", "numero"}:
+        return StdinReadNumber(name=name_tok.lower)
+    raise InflexionParseError(
+        f"`Escuchá` expects `línea` or `número`; got {kind.text!r}"
+    )
+
+
 def parse(tokens: list[Token], strings: list[str]) -> Program:
     """Parse a token stream + string table into a Program."""
     statements: list[Statement] = []
@@ -1517,8 +1875,16 @@ def parse(tokens: list[Token], strings: list[str]) -> Program:
             statements.append(_parse_plural_binding(sentence, strings))
         elif first.lower in _SINGULAR_ARTICLES:
             statements.append(_parse_singular_binding(sentence, strings))
+        elif first.lower in {"escuchá", "escucha"}:
+            # Phase 7c: stdin read — `Escuchá una línea en el <name>.`
+            statements.append(_parse_escucha(sentence, strings))
         elif _is_hace_imperative(first):
-            statements.append(_parse_mutation(sentence, strings))
+            # Phase 7c: check for list-index-set form before regular mutation.
+            list_set = _try_parse_list_index_set(sentence, strings)
+            if list_set is not None:
+                statements.append(list_set)
+            else:
+                statements.append(_parse_mutation(sentence, strings))
         else:
             statements.append(_parse_decir(sentence, strings))
     return Program(statements=tuple(statements))

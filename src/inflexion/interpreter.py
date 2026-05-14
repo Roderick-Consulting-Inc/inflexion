@@ -201,6 +201,9 @@ class Environment:
     deferred: dict[str, list[tuple[object, "Statement"]]] = field(default_factory=dict)
     parent: "Environment | None" = None
     functions: dict[str, FunctionDef] = field(default_factory=dict)
+    # Phase 7c stdin: root env holds the line buffer and cursor.
+    stdin_lines: list[str] = field(default_factory=list)
+    stdin_pos: int = field(default=0)
 
     def bind_ser(self, name: str, value: object) -> None:
         if name in self.cells:
@@ -329,27 +332,17 @@ class Environment:
     def read_stdin_line(self) -> str:
         """Read the next line from the stdin stream (Phase 7c).
 
-        The root environment holds the stdin line buffer. Subclasses /
-        callers supply it via the `stdin_lines` field. Returns an empty
-        string when the buffer is exhausted (EOF behaviour).
-
-        Phase 7c wires this to `run_source(source, stdin=...)`. Until
-        then, calling it raises so the error is explicit.
+        The root environment holds the stdin line buffer (``stdin_lines``
+        field, set by `run_source` / `run`). Returns the empty string
+        when the buffer is exhausted (EOF convention).
         """
         root = self._root()
-        if not hasattr(root, "_stdin_lines"):
-            raise InflexionRuntimeError(
-                "`Escuchá` requires stdin to be supplied. "
-                "Pass `stdin=...` to `run_source()`."
-            )
-        lines: list[str] = root._stdin_lines  # type: ignore[attr-defined]
-        pos_attr = "_stdin_pos"
-        pos: int = getattr(root, pos_attr, 0)
+        lines = root.stdin_lines
+        pos = root.stdin_pos
         if pos >= len(lines):
             return ""
-        line = lines[pos]
-        setattr(root, pos_attr, pos + 1)
-        return line
+        root.stdin_pos = pos + 1
+        return lines[pos]
 
     def child_scope(self) -> "Environment":
         """Construct a fresh child scope rooted at this env (Phase 5)."""
@@ -397,8 +390,8 @@ def _broadcast(op: str, left: object, right: object) -> object:
     out of scope; element-wise apply checks each operand for numericness
     at use time and raises on non-numeric content.
     """
-    left_is_coll = isinstance(left, tuple)
-    right_is_coll = isinstance(right, tuple)
+    left_is_coll = _is_collection(left)
+    right_is_coll = _is_collection(right)
     if left_is_coll and right_is_coll:
         if len(left) != len(right):
             raise InflexionRuntimeError(
@@ -527,8 +520,8 @@ def _scale_value(value: object, factor: float) -> object:
     common case for halving an even number or doubling), otherwise a
     `float`. Tuples (collection values) are scaled element-wise.
     """
-    if isinstance(value, tuple):
-        return tuple(_scale_value(elt, factor) for elt in value)
+    if _is_collection(value):
+        return tuple(_scale_value(elt, factor) for elt in value)  # type: ignore[union-attr]
     if not _is_scalar_number(value):
         raise InflexionRuntimeError(
             f"Cannot apply diminutive / augmentative scaling to non-numeric "
@@ -648,8 +641,8 @@ def _render_record_value(value: object) -> str:
     `_format_collection` produces, so the record line round-trips
     cleanly when the user pipes it to `Decí`.
     """
-    if isinstance(value, tuple):
-        inner = ", ".join(repr(elt) for elt in value)
+    if _is_collection(value):
+        inner = ", ".join(repr(elt) for elt in value)  # type: ignore[union-attr]
         return f"[{inner}]"
     return repr(value) if isinstance(value, str) else str(value)
 
@@ -663,7 +656,7 @@ def _eval_reduction(red: Reduction, env: Environment) -> object:
             f"{sorted(_REDUCTION_OPS)}. Got: {red.op!r}."
         )
     target_value = _eval_expr(red.target, env)
-    if not isinstance(target_value, tuple):
+    if not _is_collection(target_value):
         raise InflexionRuntimeError(
             f"Reduction `el resultado de {red.op} …` requires a collection "
             f"target; got scalar {target_value!r}."
@@ -831,23 +824,27 @@ def _resolve_clitic(clitic: str, env: Environment) -> object:
     )
 
 
+def _is_collection(value: object) -> bool:
+    """True if `value` is a collection (tuple or mutable list).
+
+    Phase 7c: estar-bound lists are stored as Python `list`; ser-bound
+    collections remain `tuple`. Both are valid collection values.
+    """
+    return isinstance(value, (tuple, list))
+
+
 def _format_collection(value: object) -> str:
     """Render a collection value for `Decí los X`.
 
     Format choice: Python-list repr (e.g. `[90.0, 180.0, 270.0, 360.0]`).
-    Rationale: round-trippable with the list-literal source syntax,
-    unambiguous on element type (a float prints with its `.0`), and
-    keeps the prose distinct from a single scalar print. The
-    JSON-style and Spanish-prose alternatives the spec offers were
-    considered; the list-repr form was chosen because it is the cheapest
-    output that survives reparse by the same lexer.
+    Phase 7c: accepts both `tuple` (ser-bound) and `list` (estar-bound).
     """
-    if not isinstance(value, tuple):
+    if not _is_collection(value):
         raise InflexionRuntimeError(
             f"`Decí los <name>` requires a collection; got {value!r} "
             f"(a scalar). Did you mean `Decí el {value!r}`?"
         )
-    inner = ", ".join(repr(elt) for elt in value)
+    inner = ", ".join(repr(elt) for elt in value)  # type: ignore[union-attr]
     return f"[{inner}]"
 
 
@@ -989,7 +986,13 @@ def _execute_statement(
             )
         env.bind_ser(stmt.name, value)
     elif isinstance(stmt, BindingEstar):
-        env.bind_estar(stmt.name, _eval_expr(stmt.value, env))
+        value = _eval_expr(stmt.value, env)
+        # Phase 7c: estar-bound collections are stored as mutable Python
+        # lists so that ListIndexSet can mutate individual elements.
+        # Ser-bound collections remain tuples (immutable).
+        if isinstance(value, tuple):
+            value = list(value)
+        env.bind_estar(stmt.name, value)
     elif isinstance(stmt, MutationCommand):
         fired = env.mutate(stmt.name, _eval_expr(stmt.value, env))
         for action in fired:
@@ -1012,7 +1015,7 @@ def _execute_statement(
         out.write(f"{_format_collection(value)}\n")
     elif isinstance(stmt, DecirExpr):
         value = _eval_expr(stmt.value, env)
-        if isinstance(value, tuple):
+        if _is_collection(value):
             out.write(f"{_format_collection(value)}\n")
         else:
             out.write(f"{value}\n")
