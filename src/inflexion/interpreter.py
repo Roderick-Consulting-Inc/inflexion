@@ -1001,11 +1001,12 @@ def _execute_statement(
         for action in fired:
             _execute_statement(action, env, out)
     elif isinstance(stmt, MutationSequence):
-        # Phase 7a: sequential semantics — each mutation sees prior ones.
-        for mut in stmt.mutations:
-            fired = env.mutate(mut.name, _eval_expr(mut.value, env))
-            for action in fired:
-                _execute_statement(action, env, out)
+        # Phase 7a: sequential semantics — each step sees prior mutations.
+        # Phase 7c: steps may be MutationCommand OR ListIndexSet (or any
+        # Statement), so dispatch through _execute_statement rather than
+        # calling env.mutate directly.
+        for sub in stmt.mutations:
+            _execute_statement(sub, env, out)
     elif isinstance(stmt, BodySequence):
         # Phase 7a: compound body (Si chain + trailing mutations).
         for sub in stmt.statements:

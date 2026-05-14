@@ -511,18 +511,18 @@ class BodySequence:
 class MutationSequence:
     """Phase 7a multi-clause mutation body: `hacé que … y que … y que …`.
 
-    A non-empty sequence of `MutationCommand` nodes. The interpreter
-    evaluates them left-to-right with sequential (not atomic) semantics:
-    each mutation evaluates its RHS with the CURRENT environment, so
-    prior mutations in the same sequence are visible to later ones. This
-    means ``y que el a esté en el b y que el b esté en el a`` is *not*
-    an atomic swap — it sets ``a = b`` first, then sets ``b = a`` (the
-    already-updated value). We document this as the intended behaviour:
-    it matches the natural Spanish reading of a comma-separated imperative
-    list where each clause follows from the previous.
+    A non-empty sequence of `Statement` nodes executed left-to-right with
+    sequential (not atomic) semantics: each mutation evaluates its RHS with
+    the CURRENT environment, so prior mutations in the same sequence are
+    visible to later ones. This means ``y que el a esté en el b y que el b
+    esté en el a`` is *not* an atomic swap.
+
+    Phase 7c allows indexed-list mutations (`hacé que el i-ésimo de el lista
+    esté en V`) as entries in the sequence — hence the element type is the
+    general ``Statement`` rather than the narrower ``MutationCommand``.
     """
 
-    mutations: "tuple[MutationCommand, ...]"
+    mutations: "tuple[Statement, ...]"
 
 
 @dataclass(frozen=True)

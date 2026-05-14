@@ -1087,22 +1087,135 @@ def _parse_mutation_continuation(
     return MutationCommand(name=noun.lower, value=_parse_value(value_tokens, strings))
 
 
+_ESIMO_CONTINUATIONS = ("ésimo", "esimo", "ésima", "esima")
+
+
+def _try_parse_continuation_indexed_set(
+    tokens: list[Token], strings: list[str]
+) -> "ListIndexSet | None":
+    """Try to parse a `y que` indexed-set continuation:
+    `el i-ésimo de <list> esté en <value>`.
+
+    This is the continuation form (without `hacé que`) of an indexed-list
+    mutation. Returns a `ListIndexSet` if the tokens match, else ``None``.
+
+    Handles the single-token ordinal (`i-ésimo`) and the spaCy-split form
+    (`i`, `-`, `ésimo`).  Both numeric and variable ordinals are accepted.
+    """
+    if not tokens or tokens[0].lower not in _SINGULAR_ARTICLES:
+        return None
+
+    ordinal_tok = tokens[1] if len(tokens) > 1 else None
+    if ordinal_tok is None:
+        return None
+
+    index_expr: "Expr"
+
+    # --- Single-token ordinal: `5-ésimo`, `i-ésimo` ---
+    m_num = _ORDINAL_RE.match(ordinal_tok.text)
+    if m_num:
+        index_expr = IntLit(int(m_num.group(1)))
+        de_idx = 2
+    elif ordinal_tok.lower in _NAMED_ORDINALS:
+        index_expr = IntLit(_NAMED_ORDINALS[ordinal_tok.lower])
+        de_idx = 2
+    else:
+        m_var = _VAR_ORDINAL_RE.match(ordinal_tok.text)
+        if m_var:
+            index_expr = Identifier(m_var.group(1).lower())
+            de_idx = 2
+        # --- Split-token ordinal: [tok, -, ésimo] ---
+        elif (
+            len(tokens) >= 4
+            and tokens[2].text == "-"
+            and tokens[3].lower in _ESIMO_CONTINUATIONS
+        ):
+            if ordinal_tok.is_integer_literal:
+                index_expr = IntLit(int(ordinal_tok.text))
+            else:
+                index_expr = Identifier(ordinal_tok.lower)
+            de_idx = 4
+        else:
+            return None
+
+    # After ordinal: `de <article> <list-name>`
+    if de_idx + 2 >= len(tokens):
+        return None
+    if tokens[de_idx].lower != "de":
+        return None
+    if tokens[de_idx + 1].lower not in {*_SINGULAR_ARTICLES, *_PLURAL_ARTICLES}:
+        return None
+    list_name = tokens[de_idx + 2].lower
+
+    # Then: `esté en <value>`
+    este_idx = de_idx + 3
+    if este_idx + 1 >= len(tokens):
+        return None
+    if not _is_estar_subjunctive(tokens[este_idx]):
+        return None
+    if tokens[este_idx + 1].lower != "en":
+        return None
+    value_tokens = tokens[este_idx + 2 :]
+    if not value_tokens:
+        return None
+    value = _parse_value(value_tokens, strings)
+    return ListIndexSet(index=index_expr, list_name=list_name, value=value)
+
+
+def _parse_any_mutation_segment(
+    segment: list[Token], strings: list[str]
+) -> "Statement":
+    """Parse one full `hacé que …` segment as either an indexed-list set
+    or a plain `MutationCommand`.
+
+    The indexed-set form is tried first via `_try_parse_list_index_set`
+    (which handles `hacé que el i-ésimo de el lista esté en V`). If that
+    returns ``None``, the regular `_parse_mutation` path is used.
+    """
+    list_set = _try_parse_list_index_set(segment, strings)
+    if list_set is not None:
+        return list_set
+    return _parse_mutation(segment, strings)
+
+
+def _parse_any_continuation_segment(
+    segment: list[Token], strings: list[str]
+) -> "Statement":
+    """Parse one `y que …` continuation segment as either an indexed-list
+    set or a plain `MutationCommand`.
+
+    The indexed-set form is tried first via
+    `_try_parse_continuation_indexed_set` (handles `el i-ésimo de el lista
+    esté en V`). If that returns ``None``, the regular
+    `_parse_mutation_continuation` path is used.
+    """
+    list_set = _try_parse_continuation_indexed_set(segment, strings)
+    if list_set is not None:
+        return list_set
+    return _parse_mutation_continuation(segment, strings)
+
+
 def _parse_mutation_sequence(
     tokens: list[Token], strings: list[str]
 ) -> "Statement":
     """Parse `hacé que el X esté en V [y que el Y esté en W ...]`.
 
-    Returns a `MutationCommand` when there is a single clause, or a
+    Returns a single mutation Statement when there is one clause, or a
     `MutationSequence` when there are two or more `y que`-joined clauses.
-    Sequential semantics are committed in the Phase 7a commit message:
-    each RHS is evaluated with the current (post-prior-mutations)
-    environment, matching Spanish comma-list read order.
+    Sequential semantics: each RHS is evaluated with the current
+    (post-prior-mutations) environment.
+
+    Phase 7c: each clause may be either a plain `MutationCommand`
+    (`el X esté en V`) or a `ListIndexSet` (`el i-ésimo de el lista esté
+    en V`). The first segment opens with `hacé que`; subsequent segments
+    start directly with `el` (the `y que` having been stripped by the
+    caller).
     """
     segments = _split_y_que(tokens)
-    first = _parse_mutation(segments[0], strings)
+    first = _parse_any_mutation_segment(segments[0], strings)
     if len(segments) == 1:
         return first
-    rest = [_parse_mutation_continuation(seg, strings) for seg in segments[1:]]
+    rest = [_parse_any_continuation_segment(seg, strings) for seg in segments[1:]]
     return MutationSequence(mutations=(first, *rest))
 
 

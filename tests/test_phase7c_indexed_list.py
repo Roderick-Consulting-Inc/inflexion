@@ -206,6 +206,65 @@ def test_variable_index_mutation_and_read_in_loop() -> None:
     assert result == "0\n1\n"
 
 
+def test_indexed_set_in_mientras_body() -> None:
+    """Variable-indexed set as the `hacé que` clause of a Mientras body.
+
+    This is the Sieve blocker pattern: the first clause in the `y que`
+    body is `hacé que el j-ésimo de el xs esté en 0` (indexed set), and
+    the second clause is a plain counter increment. Parsed via
+    `_parse_any_mutation_segment` → `_try_parse_list_index_set`.
+    """
+    src = (
+        "El xs está en [1, 1, 1, 1, 1].\n"
+        "El j está en 1.\n"
+        "Mientras el j no esté en 6, "
+        "hacé que el j-ésimo de el xs esté en 0 y que el j esté en el j más 1.\n"
+        "Decí el xs.\n"
+    )
+    # `Decí el xs` → DecirCommand → f"{[0,0,0,0,0]}\n" (Python list repr)
+    assert inflexion.run_source(src) == "[0, 0, 0, 0, 0]\n"
+
+
+def test_indexed_set_continuation_in_mientras_body() -> None:
+    """Variable-indexed set in the `y que` continuation slot (not first).
+
+    First slot is the indexed set; second is the counter increment.
+    Both paths exercise `_parse_any_mutation_segment` /
+    `_parse_any_continuation_segment`.
+    """
+    src = (
+        "El xs está en [0, 0, 0].\n"
+        "El i está en 1.\n"
+        "Mientras el i no esté en 4, "
+        "hacé que el i-ésimo de el xs esté en el i por 7 "
+        "y que el i esté en el i más 1.\n"
+        "Decí el xs.\n"
+    )
+    # i=1: xs[1]=7, i→2; i=2: xs[2]=14, i→3; i=3: xs[3]=21, i→4; stop
+    assert inflexion.run_source(src) == "[7, 14, 21]\n"
+
+
+def test_indexed_set_sieve_style_compact() -> None:
+    """Sieve-style: mark even-indexed elements as 0 via variable-indexed set in loop.
+
+    j steps by 2: 2→4→6→8 (boundary). Marks 1-based indices 2, 4, 6.
+    The condition must be `no esté en 8` because j increments by 2 and
+    never equals 7 (so `no esté en 7` would overshoot).
+    """
+    src = (
+        "El criba está en [1, 1, 1, 1, 1, 1].\n"
+        "El j está en 2.\n"
+        "Mientras el j no esté en 8, "
+        "hacé que el j-ésimo de el criba esté en 0 y que el j esté en el j más 2.\n"
+        # indices 2,4,6 zeroed; 1,3,5 untouched
+        "Decí el primero de el criba.\n"
+        "Decí el segundo de el criba.\n"
+    )
+    result = inflexion.run_source(src)
+    # index 1 untouched (1); index 2 zeroed (0)
+    assert result == "1\n0\n"
+
+
 # ---------------------------------------------------------------------------
 # Bounds check
 # ---------------------------------------------------------------------------
