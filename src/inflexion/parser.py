@@ -1224,15 +1224,19 @@ def _parse_body_imperative(
 ) -> "Statement":
     """Parse a single imperative for use as a `Si`-branch or loop body.
 
-    Handles both the mutation form (`Hacé que …`) and the decir/enclitic
-    forms handled by `_parse_imperative_tokens`.
+    Handles both the mutation form (`Hacé que …`) — including indexed-list
+    mutations (`Hacé que el i-ésimo de el lista esté en V`) — and the
+    decir/enclitic forms handled by `_parse_imperative_tokens`.
     """
     if not tokens:
         raise InflexionParseError("Empty imperative body.")
     if _is_hace_imperative(tokens[0]):
+        # Use _parse_any_mutation_segment so that indexed-list set forms
+        # (`hacé que el i-ésimo de el lista esté en V`) are recognised in
+        # Si-branch bodies, not just at the top level.
         # Note: Si-branch bodies do NOT get the y-que sequence extension
         # (that is reserved for Mientras bodies per Phase 7a spec).
-        return _parse_mutation(tokens, strings)
+        return _parse_any_mutation_segment(tokens, strings)
     return _parse_imperative_tokens(tokens, strings)
 
 

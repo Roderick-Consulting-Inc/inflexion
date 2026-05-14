@@ -244,6 +244,21 @@ def test_indexed_set_continuation_in_mientras_body() -> None:
     assert inflexion.run_source(src) == "[7, 14, 21]\n"
 
 
+def test_indexed_set_in_si_arm_body() -> None:
+    """Variable-indexed set as the body of a Si arm (`Si …, hacé que el i-ésimo de …`).
+
+    `_parse_body_imperative` previously called `_parse_mutation` directly,
+    which rejected the ordinal form. Fixed to use `_parse_any_mutation_segment`.
+    """
+    src = (
+        "El criba está en [1, 1, 1].\n"
+        "El i es 2.\n"
+        "Si el i es 2, hacé que el i-ésimo de el criba esté en 0.\n"
+        "Decí el criba.\n"
+    )
+    assert inflexion.run_source(src) == "[1, 0, 1]\n"
+
+
 def test_indexed_set_sieve_style_compact() -> None:
     """Sieve-style: mark even-indexed elements as 0 via variable-indexed set in loop.
 
