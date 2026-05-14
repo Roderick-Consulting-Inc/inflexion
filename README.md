@@ -30,21 +30,24 @@ The language is in its design phase. The first installment lays out the grammati
 
 ## Runtime status
 
-The Python interpreter is being built in phases that track the six grammatical mappings from `05` §3 and the worked examples from `05` §5. As of v0.0.7 (commit `1671465`), **Phase 6 has shipped and the six-mapping curriculum is implemented end-to-end**:
+The Python interpreter is being built in phases that track the six grammatical mappings from `05` §3 and the worked examples from `05` §5. As of v0.0.8 (commit `ee51822`), **Phase 7 has shipped and all six grammatical mappings plus Turing completeness are implemented end-to-end**:
 
-| Phase | Mapping covered | Example file | Status |
+| Phase | Mapping covered | Example files | Status |
 |---|---|---|---|
-| 1 | *ser* binding + 1-clitic vos imperative (§3.1, §3.6) | `examples/hello-mundo.infl` | shipped |
-| 2 | *estar* binding + imperative mutation (§3.1, §3.6) | `examples/contador.infl` | shipped |
-| 3a | *Cuando* subjunctive deferred binding (§3.2) | `examples/contador-listo.infl` | shipped |
-| 3b | *Mientras* iteration + arithmetic (§3.2, §3.7) | `examples/contador-cuenta.infl` | shipped |
-| 4 | Number agreement + collections + broadcasting (§3.6, §3.7) | `examples/precios.infl` | shipped |
-| 5 | Function definition (relative-clause syntax), positional calls, clitic stacks > 1, reductions (§3.4, §3.8) | `examples/descontar.infl`, `examples/transferir.infl` | shipped (v0.0.6, `c22c8d7`) |
-| 6 | Diminutive / augmentative scaling + aspect-marked lazy (§3.3, §3.5) | `examples/sumita.infl`, `examples/potencias.infl` | **shipped (v0.0.7, `1671465`)** |
+| 1 | *ser* binding + 1-clitic vos imperative (§3.1, §3.6) | `hello-mundo.infl` | shipped |
+| 2 | *estar* binding + imperative mutation (§3.1, §3.6) | `contador.infl` | shipped |
+| 3a | *Cuando* subjunctive deferred binding (§3.2) | `contador-listo.infl` | shipped |
+| 3b | *Mientras* iteration + arithmetic (§3.2, §3.7) | `contador-cuenta.infl` | shipped |
+| 4 | Number agreement + collections + broadcasting (§3.6, §3.7) | `precios.infl` | shipped |
+| 5 | Function definition (relative-clause syntax), positional calls, clitic stacks > 1, reductions (§3.4, §3.8) | `funcion-descontar.infl`, `transferir.infl` | shipped (v0.0.6, `c22c8d7`) |
+| 6 | Diminutive / augmentative scaling + aspect-marked lazy (§3.3, §3.5) | `sumita.infl`, `potencias.infl` | shipped (v0.0.7, `1671465`) |
+| 7a | Si-entonces-sino conditional dispatch; y-que multi-clause loop body (§3.2, §3.7) | `fizzbuzz.infl`, `fibonacci-iterativo.infl` | **shipped (v0.0.8, `bb441df`)** |
+| 7b | Recursion via parenthesised arguments; full clitic-routed argument passing (§3.4, §3.8) | `fibonacci-recursivo.infl` | **shipped (v0.0.8, `e5d90cc`)** |
+| 7c | String operations; indexed mutable lists; stdin I/O; Turing-completeness witness (§3.8, §4.3) | `sieve.infl`, `brainfuck.infl` | **shipped (v0.0.8, `ee51822`)** |
 
-82 tests passing as of Phase 6. The runtime is hand-built (Python + spaCy `es_core_news_sm` morphology + a custom rule layer for vos imperatives and irregular bare-stem resolution). Source lives in `src/inflexion/`; tests in `tests/`; runnable example programs in `examples/`.
+206+ tests passing as of Phase 7 (final count pending test-writer's completion of sieve and brainfuck test suites). The runtime is hand-built (Python + spaCy `es_core_news_sm` morphology + a custom rule layer for vos imperatives and irregular bare-stem resolution). Source lives in `src/inflexion/`; tests in `tests/`; runnable example programs in `examples/`.
 
-With Phase 6, the six grammatical mappings from paper §3 — *ser* / *estar*, mood, aspect, clitic ordering, diminutive / augmentative, number — all run end-to-end. The next paper in the series, Installment 06 (operational semantics), will be drafted from the captured implementation specification.
+With Phase 7, all six grammatical mappings from paper §3 — *ser* / *estar*, mood, aspect, clitic ordering, diminutive / augmentative, number — run end-to-end, plus the two Turing-completeness extensions (*mientras* iteration and self-referential recursion) are proven through a working Brainfuck interpreter. The operational-semantics installment (Installment 06) is now unblocked and can be drafted from the captured implementation specification.
 
 ## Naming
 
