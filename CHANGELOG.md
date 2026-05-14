@@ -2,6 +2,46 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.9] — 2026-05-14
+
+### Added — Phase 8: `Escribí` imperative (write without newline)
+
+Spanish distinguishes *decir* (to say — finished utterance, terminated)
+from *escribir* (to write — token streaming, no inherent termination).
+Phase 1–7 mapped only the first half of that pair: `Decí` is the
+sole output imperative, and it appends `\n` after every utterance.
+Phase 8 closes the gap by adding `Escribí` as the streaming-output
+sibling, parallel in every other respect.
+
+- **Lemma:** `escribí` / `escribi` join `decí` / `hacé` in the
+  vos-imperative table. Both surface forms are accepted.
+- **AST:** four new dataclasses parallel the Decir-family:
+  `EscribirCommand` (named binding), `EscribirPluralCommand` (collection),
+  `EscribirExpr` (arbitrary expression), `EscribirLiteral` (string literal).
+- **Interpreter:** each new node emits its value with no trailing newline,
+  the only behavioural difference from the Decir counterparts.
+- **Brainfuck interpreter** (examples/brainfuck.infl) now uses
+  `Escribí` for BF's `.` operator. `Hello World!` renders on a single
+  line — the standard BF host behaviour. The trailing `\n` in the output
+  comes from the BF program emitting chr(10), not from Inflexión.
+
+### Changed — Article–noun concord pass on benchmark programs
+
+A grammar-quality fix across `brainfuck.infl` and `sieve.infl`: variables
+with feminine nouns now carry feminine articles. `el cinta` → `la cinta`
+(cinta is feminine — tape), `el celda` → `la celda` (cell), `el criba`
+→ `la criba` (sieve), `el instruccion` → `la instruccion` (instruction).
+Function parameters declared with feminine nouns now use `una` instead of
+`un`. The compiler remains silent on gender (per the §3 design choice);
+this is a prose-quality improvement, not a semantic change.
+
+### Tests
+
+- +11 Phase 8 tests in `tests/test_phase8_escribir.py`.
+- `tests/test_brainfuck.py` updated to expect single-line `Hello World!\n`
+  output.
+- 238 passing (227 → 238, +11 for Phase 8).
+
 ## [0.0.8] — 2026-05-14
 
 ### Added — Phase 7: Conditional dispatch, recursion, strings, indexed lists, stdin (commits `bb441df`, `e5d90cc`, `ee51822`)
@@ -19,7 +59,7 @@ Five benchmark programs demonstrate the complete design:
 - `sieve.infl` — Indexed mutable lists and conditional loops (Phase 7c).
 - `brainfuck.infl` — Brainfuck interpreter: recursion + strings + indexed lists + stdin (Phase 7a/b/c complete proof of Turing completeness from §4.3).
 
-The Brainfuck interpreter serves as the witness for Turing-completeness promised in §4.3. Note: output renders one character per line because `decí` appends a newline after each character; this is a property of the output imperative, not a bug.
+The Brainfuck interpreter serves as the witness for Turing-completeness promised in §4.3. Note: this initial 0.0.8 BF interpreter rendered output one character per line because `decí` appends a newline after each call. Phase 8 (v0.0.9) closes this gap by adding `escribí` as the streaming-output sibling of `decí`, and the BF interpreter now produces standard single-line `Hello World!\n` output.
 
 ### Tests
 
