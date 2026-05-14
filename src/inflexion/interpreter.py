@@ -109,6 +109,10 @@ from .ast import (
     ComparisonCondition,
     Condition,
     DecirCommand,
+    EscribirCommand,       # Phase 8
+    EscribirPluralCommand, # Phase 8
+    EscribirExpr,          # Phase 8
+    EscribirLiteral,       # Phase 8
     DecirExpr,
     DecirLiteral,
     DecirPluralCommand,
@@ -1029,6 +1033,23 @@ def _execute_statement(
             out.write(f"{value}\n")
     elif isinstance(stmt, DecirLiteral):
         out.write(f"{stmt.value.value}\n")
+    elif isinstance(stmt, EscribirCommand):
+        # Phase 8: write without a trailing newline. Parallels DecirCommand
+        # but treats output as a token stream (BF `.` emits one byte at a
+        # time and expects no separator between bytes).
+        value = _eval_expr(Identifier(stmt.name), env)
+        out.write(f"{value}")
+    elif isinstance(stmt, EscribirPluralCommand):
+        value = _eval_expr(Identifier(stmt.name), env)
+        out.write(f"{_format_collection(value)}")
+    elif isinstance(stmt, EscribirExpr):
+        value = _eval_expr(stmt.value, env)
+        if _is_collection(value):
+            out.write(f"{_format_collection(value)}")
+        else:
+            out.write(f"{value}")
+    elif isinstance(stmt, EscribirLiteral):
+        out.write(f"{stmt.value.value}")
     elif isinstance(stmt, ImperativeCall):
         _execute_imperative(stmt, env, out)
     elif isinstance(stmt, FunctionDef):

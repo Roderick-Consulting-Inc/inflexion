@@ -309,6 +309,55 @@ class DecirLiteral:
 
 
 @dataclass(frozen=True)
+class EscribirCommand:
+    """Imperative write-without-newline of a scalar: `Escribí <singular-article> <noun>.`
+
+    Phase 8 addition. Parallels `DecirCommand` but the output is written
+    raw, with no trailing newline. The grammatical-semantic distinction is
+    *decir* (to say — finished utterance, terminated) vs *escribir* (to
+    write — token streaming, no inherent termination). Both are vos
+    imperatives, both are side effects under the mood mapping; the verb
+    choice selects the termination axis.
+    """
+
+    name: str
+
+
+@dataclass(frozen=True)
+class EscribirPluralCommand:
+    """Imperative write-without-newline of a collection: `Escribí los <noun>.`
+
+    Phase 8 parallel of `DecirPluralCommand`. No trailing newline; the
+    formatted collection is emitted raw.
+    """
+
+    name: str
+
+
+@dataclass(frozen=True)
+class EscribirExpr:
+    """Imperative write-without-newline of an arbitrary expression: `Escribí <expr>.`
+
+    Phase 8 parallel of `DecirExpr`. The wrapped `Expr` is evaluated and
+    written without a trailing newline. Used by the worked Brainfuck
+    interpreter (paper §4.3 Turing-completeness witness) so that BF's
+    single-byte `.` operator can be expressed in Inflexión.
+    """
+
+    value: "Expr"
+
+
+@dataclass(frozen=True)
+class EscribirLiteral:
+    """Imperative write-without-newline of a string literal: `Escribí "<text>".`
+
+    Phase 8 parallel of `DecirLiteral`. No trailing newline.
+    """
+
+    value: StringLit
+
+
+@dataclass(frozen=True)
 class ImperativeCall:
     """A vos-imperative verb (optionally with a single enclitic clitic).
 
@@ -641,6 +690,10 @@ Statement = Union[
     DecirPluralCommand,
     DecirExpr,
     DecirLiteral,
+    EscribirCommand,       # Phase 8
+    EscribirPluralCommand, # Phase 8
+    EscribirExpr,          # Phase 8
+    EscribirLiteral,       # Phase 8
     ImperativeCall,
     DeferredBinding,
     WhileLoop,
