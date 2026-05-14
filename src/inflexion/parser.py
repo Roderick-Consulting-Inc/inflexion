@@ -811,6 +811,9 @@ def _is_collection_expr(expr: Expr) -> bool:
         return True
     if isinstance(expr, FunctionCall):
         return True
+    if isinstance(expr, StringChars):
+        # Phase 7c: `los caracteres de <str>` yields a tuple of single-char strings.
+        return True
     if isinstance(expr, BinaryOp):
         return _is_collection_expr(expr.left) or _is_collection_expr(expr.right)
     return False
