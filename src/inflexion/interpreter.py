@@ -102,6 +102,7 @@ from .ast import (
     BindingEstar,
     BindingSer,
     BindingSerPlural,
+    BodySequence,
     CharCode,
     CliticImperativeCall,
     CodeToChar,
@@ -1003,6 +1004,10 @@ def _execute_statement(
             fired = env.mutate(mut.name, _eval_expr(mut.value, env))
             for action in fired:
                 _execute_statement(action, env, out)
+    elif isinstance(stmt, BodySequence):
+        # Phase 7a: compound body (Si chain + trailing mutations).
+        for sub in stmt.statements:
+            _execute_statement(sub, env, out)
     elif isinstance(stmt, DecirCommand):
         # Phase 6: route through `_eval_expr(Identifier)` so the
         # diminutive / augmentative lookup fallback fires for forms

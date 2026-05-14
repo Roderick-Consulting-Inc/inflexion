@@ -224,19 +224,37 @@ def test_si_body_mutation_miss() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_si_inside_mientras() -> None:
-    """Si dispatch inside a Mientras loop (FizzBuzz lite: count 1-5, tag multiples of 3)."""
+def test_si_inside_mientras_compound_body() -> None:
+    """Si dispatch + y-que counter increment inside Mientras (compound body).
+
+    Tests the Phase 7a `BodySequence` path:
+        Mientras …, si COND, BODY; sino, BODY; y que el i esté en el i más 1.
+
+    FizzBuzz-lite for i=1..5: multiples of 3 → "Fizz", others → the number.
+    """
     src = (
         "El i está en 1.\n"
         "Mientras el i no esté en 6, "
-        'si el i es divisible por 3, decí "fizz"; sino, decí el i.\n'
-        "Hacé que el i esté en el i más 1.\n"  # separate top-level stmt (simple test)
+        'si el i es divisible por 3, decí "Fizz"; sino, decí el i; '
+        "y que el i esté en el i más 1.\n"
     )
-    # The loop body is a Si; the mutation is a separate top-level statement.
-    # Loop runs for i=1..5; but actually wait - the body is ONLY the Si, not the mutation.
-    # The `hacé que el i esté en el i más 1` is a separate TOP-LEVEL sentence.
-    # So this would loop forever. Let me redesign.
-    pass
+    assert inflexion.run_source(src) == "1\n2\nFizz\n4\n5\n"
+
+
+def test_fizzbuzz_1_to_15() -> None:
+    """FizzBuzz for 1..15 (the canonical demonstration, compound Mientras body)."""
+    src = (
+        "El i está en 1.\n"
+        "Mientras el i no esté en 16, "
+        'si el i es divisible por 15, decí "FizzBuzz"; sino, '
+        'si el i es divisible por 3, decí "Fizz"; sino, '
+        'si el i es divisible por 5, decí "Buzz"; sino, decí el i; '
+        "y que el i esté en el i más 1.\n"
+    )
+    expected = (
+        "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n"
+    )
+    assert inflexion.run_source(src) == expected
 
 
 # Simpler: verify Si dispatch works when Si is used outside a loop.

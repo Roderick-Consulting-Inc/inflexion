@@ -483,6 +483,27 @@ class IfStatement:
 
 
 @dataclass(frozen=True)
+class BodySequence:
+    """Phase 7a: compound body — a Si statement followed by y-que mutations.
+
+    Used when a `Mientras` loop body combines an `IfStatement` (the Si
+    dispatch) with trailing `y que`-joined mutations (e.g. the counter
+    increment in a FizzBuzz loop). The interpreter executes each statement
+    in order within the same environment.
+
+    Surface form:
+        Mientras …, si el i es divisible por 3, decí "Fizz"; sino, decí el i;
+                     y que el i esté en el i más 1.
+
+    `statements` holds an ordered tuple: the first element is typically an
+    `IfStatement`, followed by zero or more `MutationCommand` nodes.
+    More generally, any Statement is valid.
+    """
+
+    statements: "tuple[Statement, ...]"
+
+
+@dataclass(frozen=True)
 class MutationSequence:
     """Phase 7a multi-clause mutation body: `hacé que … y que … y que …`.
 
@@ -611,6 +632,7 @@ Statement = Union[
     BindingEstar,
     MutationCommand,
     MutationSequence,      # Phase 7a
+    BodySequence,          # Phase 7a (Si + y-que compound body)
     DecirCommand,
     DecirPluralCommand,
     DecirExpr,

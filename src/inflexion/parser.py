@@ -47,6 +47,7 @@ from .ast import (
     BindingEstar,
     BindingSer,
     BindingSerPlural,
+    BodySequence,
     CharCode,
     CliticImperativeCall,
     CodeToChar,
@@ -1064,21 +1065,21 @@ def _parse_body_imperative(
     return _parse_imperative_tokens(tokens, strings)
 
 
-def _parse_si(sentence: list[Token], strings: list[str]) -> IfStatement:
-    """Parse `Si <cond>, <body>; sino, si <cond>, <body>; sino, <body>`.
+def _parse_si_from_parts(
+    parts: list[list[Token]], strings: list[str]
+) -> IfStatement:
+    """Parse a Si chain from already-split (by `;`) token-list segments.
 
-    The sentence is already split from the global token stream at `.`;
-    internal `;` delimit the arms. The first token is `si`.
+    This is the core logic for `_parse_si`. It accepts the `;`-separated
+    parts directly so that `_parse_mientras_body` can filter out trailing
+    `y que` segments before handing the Si-chain parts here.
 
-    Grammar summary:
-        Si-stmt ::= `si` cond `,` body (`;` `sino` `,` (`si` cond `,` body | body))*
+    `parts[0]` must start with `si`; subsequent parts start with `sino`.
     """
-    # Split the whole sentence on `;` to get each arm's token slice.
-    parts = _split_on_semicolon(sentence)
-    # parts[0] starts with `si`; parts[1:] start with `sino`.
-    if not parts[0] or parts[0][0].lower != "si":
+    if not parts or not parts[0] or parts[0][0].lower != "si":
+        _got_si = parts[0][0].text if parts and parts[0] else "<empty>"
         raise InflexionParseError(  # pragma: no cover — caller filters
-            f"Expected `Si`, got {parts[0][0].text!r}"
+            f"Expected first Si part to start with `si`; got {_got_si!r}"
         )
 
     arms: list[tuple[ComparisonCondition, Statement]] = []
@@ -1143,6 +1144,82 @@ def _parse_si(sentence: list[Token], strings: list[str]) -> IfStatement:
     return IfStatement(arms=tuple(arms), else_body=else_body)
 
 
+def _parse_si(sentence: list[Token], strings: list[str]) -> IfStatement:
+    """Parse `Si <cond>, <body>; sino, si <cond>, <body>; sino, <body>`.
+
+    The sentence is already split from the global token stream at `.`;
+    internal `;` delimit the arms. The first token is `si`.
+
+    Grammar summary:
+        Si-stmt ::= `si` cond `,` body (`;` `sino` `,` (`si` cond `,` body | body))*
+    """
+    parts = _split_on_semicolon(sentence)
+    return _parse_si_from_parts(parts, strings)
+
+
+def _parse_mientras_body(
+    tokens: list[Token], strings: list[str]
+) -> "Statement":
+    """Parse a `Mientras` loop body that may be:
+
+    1. A single mutation / decir imperative (existing behaviour).
+    2. A `Si` chain: `si COND, BODY; sino, …`.
+    3. A compound body: `Si COND, BODY; sino, …; y que EL X esté en V` —
+       a Si chain followed by one or more `y que` mutation clauses.
+
+    The `y que` clauses are separated from the Si chain by `;`. Inside the
+    `;`-split parts, `sino`-starting segments belong to the Si chain and
+    `y que`-starting segments are trailing mutations. Any other segment
+    after the Si chain is a parse error.
+
+    Returns:
+        - `IfStatement` when only a Si chain.
+        - `BodySequence(statements=(IfStatement, mut1, mut2, …))` when
+          trailing mutations are present.
+        - `MutationSequence` / `MutationCommand` / imperative (existing
+          paths) when the body does not start with `si`.
+    """
+    if not tokens:
+        raise InflexionParseError("Empty `Mientras` body.")
+
+    first = tokens[0]
+
+    # Body starts with `si` → conditional (possibly with trailing y-que muts).
+    if first.lower == "si":
+        parts = _split_on_semicolon(tokens)
+        si_parts: list[list[Token]] = []
+        yque_tails: list[list[Token]] = []
+        for part in parts:
+            if not part:
+                continue
+            if part[0].lower in ("si", "sino"):
+                si_parts.append(part)
+            elif (
+                part[0].lower == "y"
+                and len(part) > 1
+                and part[1].lower == "que"
+            ):
+                yque_tails.append(part[2:])  # strip `y que`
+            else:
+                raise InflexionParseError(
+                    f"Unexpected segment after Si chain in `Mientras` body: "
+                    f"{[t.text for t in part]}. Expected `sino, …` or "
+                    f"`y que el <noun> esté en <value>`."
+                )
+        if not si_parts:
+            raise InflexionParseError("`Mientras` body starts with `si` but has no Si arms.")
+        if_stmt = _parse_si_from_parts(si_parts, strings)
+        if not yque_tails:
+            return if_stmt
+        mutations = [_parse_mutation_continuation(tail, strings) for tail in yque_tails]
+        return BodySequence(statements=(if_stmt, *mutations))
+
+    # Existing paths: mutation or imperative.
+    if _is_hace_imperative(first):
+        return _parse_mutation_sequence(tokens, strings)
+    return _parse_imperative_tokens(tokens, strings)
+
+
 def _parse_mientras(sentence: list[Token], strings: list[str]) -> WhileLoop:
     """Parse `Mientras el <noun> [no] esté en <value>, <imperative>`.
 
@@ -1176,12 +1253,9 @@ def _parse_mientras(sentence: list[Token], strings: list[str]) -> WhileLoop:
     # counter-loop shape; we dispatch to the mutation parser when the
     # body opens with a hacé imperative, otherwise we fall through to
     # the general imperative path so `Decí …` bodies still work.
-    if _is_hace_imperative(tail[0]):
-        # Phase 7a: use _parse_mutation_sequence so `y que` multi-clause
-        # bodies are accepted in addition to the single-mutation form.
-        body: Statement = _parse_mutation_sequence(tail, strings)
-    else:
-        body = _parse_imperative_tokens(tail, strings)
+    # Phase 7a: use _parse_mientras_body so Si chains, y-que multi-clause
+    # mutations, AND compound Si + y-que bodies are all accepted.
+    body: Statement = _parse_mientras_body(tail, strings)
     return WhileLoop(condition=condition, body=body)
 
 
