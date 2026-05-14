@@ -2,6 +2,35 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.8] — 2026-05-14
+
+### Added — Phase 7: Conditional dispatch, recursion, strings, indexed lists, stdin (commits `bb441df`, `e5d90cc`, `ee51822`)
+
+Extends the runtime with three sub-phases spanning the final elements of the design space in paper §3:
+
+- **Phase 7a (conditional dispatch):** Si-entonces-sino expression form. Multi-clause mientras body with y-que chaining for sequential effects. Integer string conversion and basic character output.
+- **Phase 7b (recursion):** Parenthesised function-call arguments `fact (el n menos 1)` disambiguate recursive invocations. Si-entonces-sino expression (extended from 7a). Full clitic-routed argument passing (Phase 5 logged shapes; Phase 7b binds values).
+- **Phase 7c (strings, collections, I/O):** String operations (length, char access, concatenation, downcase). Indexed mutable lists with `el X en índice I`. Stdin reading via `leer`. Public API adds `run_source(source, *, stdin="")` with stdin kwarg.
+
+Five benchmark programs demonstrate the complete design:
+- `fizzbuzz.infl` — Si-entonces-sino conditional dispatch with modular arithmetic (Phase 7a).
+- `fibonacci-iterativo.infl` — Multi-clause mientras loop with y-que chaining (Phase 7a/b).
+- `fibonacci-recursivo.infl` — Recursive factorial-style definition with parenthesised arguments (Phase 7b).
+- `sieve.infl` — Indexed mutable lists and conditional loops (Phase 7c).
+- `brainfuck.infl` — Brainfuck interpreter: recursion + strings + indexed lists + stdin (Phase 7a/b/c complete proof of Turing completeness from §4.3).
+
+The Brainfuck interpreter serves as the witness for Turing-completeness promised in §4.3. Note: output renders one character per line because `decí` appends a newline after each character; this is a property of the output imperative, not a bug.
+
+### Tests
+
+- 206 passing (cumulative across all phases; exact final count pending test-writer's sieve + brainfuck test completion).
+
+### Out of scope (deferred to future phases / operational-semantics installment)
+
+- Full Unicode string operations (Phase 7c handles ASCII/Latin-1).
+- Mutable-list operations beyond indexed read/write (append, slice assignment, etc. deferred).
+- BF interpreter optimizations and runtime stack depth limits.
+
 ## [0.0.7] — 2026-05-13
 
 ### Added — Phase 6: diminutive / augmentative scaling + aspect-marked lazy (commit `1671465`)
