@@ -1,0 +1,5 @@
+El a está en 0.
+El b está en 1.
+El i está en 0.
+Mientras el i no esté en 10, hacé que el b esté en el a más el b y que el a esté en el b menos el a y que el i esté en el i más 1.
+Decí el a.
