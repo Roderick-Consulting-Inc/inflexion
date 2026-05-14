@@ -534,19 +534,29 @@ def _parse_if_expression(
     The if-expression is greedy: it consumes all tokens from `si` to the end
     of the token slice supplied by the caller.  This means the if-expression
     must be the outermost (last) construct in a value context — nesting
-    requires explicit parenthesisation.
+    requires chaining in the `sino` branch (the common recursive pattern).
+
+    **Separator policy (relaxed — Phase 7a fix):**
+    The `,` after the condition is required (natural Spanish: "si COND, entonces …").
+    The separator *between* `entonces`-branch and `sino` is flexible: `;`, `,`,
+    or bare (no separator before `sino`) are all accepted. Likewise, the `,`
+    after `sino` is optional. This lets users write the natural form
+    ``si el n es 0, entonces 1 sino 0`` as well as the more punctuated
+    ``si el n es 0, entonces 1; sino, 0``. The parser detects `sino` as the
+    keyword delimiter regardless of surrounding punctuation.
 
     Grammar (informal):
-        si-expr ::= `si` cond-tokens `,` `entonces` then-tokens `;` `sino` `,` else-tokens
+        si-expr ::= `si` cond `,` `entonces` then [`;`|`,`] `sino` [`,`] else
     """
     # tokens[0] is `si`.
-    # Find the first `,` — it terminates the condition.
+    # Find the first `,` — it terminates the condition (required).
     comma_idx = next(
         (j for j, t in enumerate(tokens) if t.text == ","), None
     )
     if comma_idx is None:
         raise InflexionParseError(
-            "If-expression: expected `,` after condition (before `entonces`)."
+            "If-expression: expected `,` after condition (before `entonces`). "
+            "Form: `si COND, entonces THEN sino ELSE`."
         )
     cond_tokens = tokens[1:comma_idx]  # skip `si`
 
@@ -555,41 +565,44 @@ def _parse_if_expression(
     if entonces_pos >= len(tokens) or tokens[entonces_pos].lower != "entonces":
         _got = repr(tokens[entonces_pos].text) if entonces_pos < len(tokens) else "'<eof>'"
         raise InflexionParseError(
-            f"If-expression: expected `entonces` after `,`; got {_got}."
+            f"If-expression: expected `entonces` after `,`; got {_got}. "
+            f"Form: `si COND, entonces THEN sino ELSE`."
         )
 
-    # Find the first `;` after `entonces` — it separates then from sino.
-    semi_idx = next(
-        (j for j in range(entonces_pos + 1, len(tokens)) if tokens[j].text == ";"),
+    # Locate `sino` — the keyword delimiter for the then/else boundary.
+    # Accept it preceded by `;`, `,`, or nothing (bare). Do NOT require a
+    # specific separator so that `si … entonces X sino Y` (no punctuation),
+    # `si … entonces X, sino Y` (comma), and the strict `si … entonces X;
+    # sino, Y` form are all valid.
+    sino_idx = next(
+        (j for j in range(entonces_pos + 1, len(tokens)) if tokens[j].lower == "sino"),
         None,
     )
-    if semi_idx is None:
+    if sino_idx is None:
         raise InflexionParseError(
-            "If-expression: expected `;` between `entonces` branch and `sino`."
+            "If-expression: missing `sino` branch. "
+            "Form: `si COND, entonces THEN sino ELSE`."
         )
-    then_tokens = tokens[entonces_pos + 1 : semi_idx]
 
-    # After `;`: expect `sino` then `,` then the else-expression.
-    if semi_idx + 1 >= len(tokens) or tokens[semi_idx + 1].lower != "sino":
-        _got2 = repr(tokens[semi_idx + 1].text) if semi_idx + 1 < len(tokens) else "'<eof>'"
-        raise InflexionParseError(
-            f"If-expression: expected `sino` after `;`; got {_got2}."
-        )
-    if semi_idx + 2 >= len(tokens) or tokens[semi_idx + 2].text != ",":
-        _got3 = repr(tokens[semi_idx + 2].text) if semi_idx + 2 < len(tokens) else "'<eof>'"
-        raise InflexionParseError(
-            f"If-expression: expected `,` after `sino`; got {_got3}."
-        )
-    else_tokens = tokens[semi_idx + 3 :]
+    # then-tokens: everything between `entonces` and `sino`, stripping any
+    # trailing `;` or `,` separator.
+    then_raw = tokens[entonces_pos + 1 : sino_idx]
+    while then_raw and then_raw[-1].text in (";", ","):
+        then_raw = then_raw[:-1]
 
-    if not then_tokens:
+    # else-tokens: everything after `sino`, stripping an optional leading `,`.
+    after_sino = tokens[sino_idx + 1 :]
+    if after_sino and after_sino[0].text == ",":
+        after_sino = after_sino[1:]
+
+    if not then_raw:
         raise InflexionParseError("If-expression: `entonces` branch is empty.")
-    if not else_tokens:
+    if not after_sino:
         raise InflexionParseError("If-expression: `sino` branch is empty.")
 
     condition = _parse_comparison_condition(cond_tokens, strings)
-    then_value = _parse_value(then_tokens, strings)
-    else_value = _parse_value(else_tokens, strings)
+    then_value = _parse_value(then_raw, strings)
+    else_value = _parse_value(after_sino, strings)
 
     return IfExpression(condition=condition, then_value=then_value, else_value=else_value), len(tokens)
 
@@ -1076,7 +1089,10 @@ def _parse_si_from_parts(
 
     `parts[0]` must start with `si`; subsequent parts start with `sino`.
     """
-    if not parts or not parts[0] or parts[0][0].lower != "si":
+    # Use tok.text.lower() (calling str.lower() on the text field) rather than
+    # tok.lower (the pre-computed string field on Token) to make the intent
+    # unambiguous to readers who might confuse the field name with str.lower().
+    if not parts or not parts[0] or parts[0][0].text.lower() != "si":
         _got_si = parts[0][0].text if parts and parts[0] else "<empty>"
         raise InflexionParseError(  # pragma: no cover — caller filters
             f"Expected first Si part to start with `si`; got {_got_si!r}"

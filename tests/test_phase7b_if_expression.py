@@ -104,6 +104,52 @@ def test_nested_if_expr_zero() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Relaxed-separator forms (Phase 7a fix — Bug 3)
+# ---------------------------------------------------------------------------
+
+
+def test_if_expr_comma_separator() -> None:
+    """`si COND, entonces X, sino Y` — comma before sino (no semicolon)."""
+    src = (
+        "El x es 3.\n"
+        'El r es si el x es 5, entonces "lucky", sino "ordinary".\n'
+        "Decí el r.\n"
+    )
+    assert inflexion.run_source(src) == "ordinary\n"
+
+
+def test_if_expr_bare_sino() -> None:
+    """`si COND, entonces X sino Y` — no separator between branches."""
+    src = (
+        "El n es 4.\n"
+        'El r es si el n es divisible por 2, entonces "par" sino "impar".\n'
+        "Decí el r.\n"
+    )
+    assert inflexion.run_source(src) == "par\n"
+
+
+def test_if_expr_in_function_body_bare() -> None:
+    """If-expression in function body without semicolon separators."""
+    src = (
+        "La función etiqueta, que toma un n, es "
+        "si el n es divisible por 2, entonces \"par\" sino \"impar\".\n"
+        "Decí etiqueta 4.\n"
+        "Decí etiqueta 3.\n"
+    )
+    assert inflexion.run_source(src) == "par\nimpar\n"
+
+
+def test_if_expr_all_three_separator_forms() -> None:
+    """Strict `;`, comma, and bare forms all produce the same result."""
+    base = "El n es 6.\n"
+    strict = base + 'El r es si el n es divisible por 3, entonces "fizz"; sino, "no".\nDecí el r.\n'
+    comma = base + 'El r es si el n es divisible por 3, entonces "fizz", sino "no".\nDecí el r.\n'
+    bare = base + 'El r es si el n es divisible por 3, entonces "fizz" sino "no".\nDecí el r.\n'
+    for form, src in [("strict", strict), ("comma", comma), ("bare", bare)]:
+        assert inflexion.run_source(src) == "fizz\n", f"{form} form failed"
+
+
+# ---------------------------------------------------------------------------
 # If-expression with comparison operators
 # ---------------------------------------------------------------------------
 
