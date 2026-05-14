@@ -407,6 +407,11 @@ import re as _re
 # Matches: `5-ésimo`, `3esimo`, `1ésima` etc.
 _ORDINAL_RE = _re.compile(r"^(\d+)[-–]?[eé]simo$", _re.IGNORECASE)
 
+# Variable-identifier ordinal: `i-ésimo`, `puntero-ésimo`, etc.
+# The captured group is the variable/identifier stem (not a digit sequence).
+# Distinguished from _ORDINAL_RE by requiring a non-digit first character.
+_VAR_ORDINAL_RE = _re.compile(r"^([^\d\W]\w*)[-–]?[eé]simo$", _re.IGNORECASE | _re.UNICODE)
+
 # Named ordinal shortcuts (Phase 7c).
 _NAMED_ORDINALS: dict[str, int] = {
     "primero": 1,
@@ -436,7 +441,8 @@ def _try_parse_el_phrase(
         ``el carácter N de <expr>``          → StringCharAt (1-indexed)
         ``el código de <expr>``              → CharCode
         ``el carácter del código <expr>``    → CodeToChar
-        ``el N-ésimo de <expr>``             → ListIndexGet (1-indexed, ordinal)
+        ``el N-ésimo de <expr>``             → ListIndexGet (literal 1-indexed)
+        ``el i-ésimo de <expr>``             → ListIndexGet (variable 1-indexed)
         ``el primero de <expr>``             → ListIndexGet(1, ...)
         ``el segundo de <expr>``             → ListIndexGet(2, ...)
     """
@@ -475,28 +481,46 @@ def _try_parse_el_phrase(
             return None
         target, tgt_consumed = _parse_arith_atom(tokens[de_pos + 1 :], strings)
         return StringCharAt(index=idx_expr, target=target), de_pos + 1 + tgt_consumed
-    # el N-ésimo de <expr>  — ordinal form (single token like `5-ésimo`).
+    # el N-ésimo / el i-ésimo de <expr>  — ordinal form (single token).
+    # Handles both literal-integer ordinals (`5-ésimo` → IntLit) and
+    # variable ordinals (`i-ésimo`, `puntero-ésimo` → Identifier, resolved
+    # at runtime).
     if len(tokens) >= 4 and tokens[2].lower == "de":
         idx_tok = tokens[1]
-        if _ORDINAL_RE.match(idx_tok.text):
-            n = int(_ORDINAL_RE.match(idx_tok.text).group(1))  # type: ignore[union-attr]
+        # Numeric literal ordinal: `5-ésimo`
+        m_num = _ORDINAL_RE.match(idx_tok.text)
+        if m_num:
+            index_expr: "Expr" = IntLit(int(m_num.group(1)))
             target, consumed = _parse_arith_atom(tokens[3:], strings)
-            return ListIndexGet(index=IntLit(n), target=target), 3 + consumed
+            return ListIndexGet(index=index_expr, target=target), 3 + consumed
+        # Named ordinal shortcut: `primero`, `segundo`
         if idx_tok.lower in _NAMED_ORDINALS:
-            n = _NAMED_ORDINALS[idx_tok.lower]
+            index_expr = IntLit(_NAMED_ORDINALS[idx_tok.lower])
             target, consumed = _parse_arith_atom(tokens[3:], strings)
-            return ListIndexGet(index=IntLit(n), target=target), 3 + consumed
-    # el N-ésimo de <expr>  — spaCy splits `5-ésimo` as [5, -, ésimo].
+            return ListIndexGet(index=index_expr, target=target), 3 + consumed
+        # Variable ordinal: `i-ésimo`, `puntero-ésimo` — variable resolved at runtime.
+        m_var = _VAR_ORDINAL_RE.match(idx_tok.text)
+        if m_var:
+            index_expr = Identifier(m_var.group(1).lower())
+            target, consumed = _parse_arith_atom(tokens[3:], strings)
+            return ListIndexGet(index=index_expr, target=target), 3 + consumed
+    # Ordinal split by spaCy into [<ordinal-tok>, -, ésimo, de, ...].
+    # Handles both integer (`5`, `-`, `ésimo`) and variable (`i`, `-`, `ésimo`) forms.
+    _ESIMO_FORMS = ("ésimo", "esimo", "ésima", "esima")
     if (
         len(tokens) >= 6
-        and tokens[1].is_integer_literal
         and tokens[2].text == "-"
-        and tokens[3].lower in ("ésimo", "esimo", "ésima", "esima")
+        and tokens[3].lower in _ESIMO_FORMS
         and tokens[4].lower == "de"
     ):
-        n = int(tokens[1].text)
+        idx_tok_split = tokens[1]
+        if idx_tok_split.is_integer_literal:
+            index_expr_split: "Expr" = IntLit(int(idx_tok_split.text))
+        else:
+            # Treat as an identifier (variable name).
+            index_expr_split = Identifier(idx_tok_split.lower)
         target, consumed = _parse_arith_atom(tokens[5:], strings)
-        return ListIndexGet(index=IntLit(n), target=target), 5 + consumed
+        return ListIndexGet(index=index_expr_split, target=target), 5 + consumed
     return None
 
 
@@ -880,27 +904,48 @@ def _parse_condition(tokens: list[Token], strings: list[str]) -> Condition:
 def _parse_comparison_condition(
     tokens: list[Token], strings: list[str]
 ) -> ComparisonCondition:
-    """Parse an indicative comparison: `el <noun> <op> <value>`.
+    """Parse an indicative comparison: `el <subject-expr> <op> <value>`.
 
     Phase 7a condition forms (all indicative, not subjunctive):
-        - `el x es N`              equality           → op ``"es"``
-        - `el x no es N`           inequality         → op ``"no_es"``
-        - `el x es mayor que N`    strictly greater   → op ``"mayor_que"``
-        - `el x es menor que N`    strictly less      → op ``"menor_que"``
-        - `el x es divisible por N` divisibility      → op ``"divisible_por"``
+        - `el x es N`                     equality        → op ``"es"``
+        - `el x no es N`                  inequality      → op ``"no_es"``
+        - `el x es mayor que N`           strictly greater → op ``"mayor_que"``
+        - `el x es menor que N`           strictly less   → op ``"menor_que"``
+        - `el x es divisible por N`       divisibility    → op ``"divisible_por"``
+
+    The subject may be a simple identifier (`el x`) OR a complex `el`-phrase
+    such as a list-index (`el i-ésimo de la criba`). The parser tries
+    ``_try_parse_el_phrase`` first; if it matches, the consumed tokens
+    are used as the subject expression and the operator is parsed from
+    what follows. If not, the classic 2-token `el <noun>` form is used.
     """
     if len(tokens) < 3:
         raise InflexionParseError(
             f"Comparison condition expects `<article> <noun> <op> <value>`; "
             f"got {[t.text for t in tokens]}"
         )
-    article, noun, *rest = tokens
-    if article.lower not in _SINGULAR_ARTICLES:
+    if tokens[0].lower not in _SINGULAR_ARTICLES:
         raise InflexionParseError(
-            f"Comparison condition expects a singular article; got {article.text!r}"
+            f"Comparison condition expects a singular article; got {tokens[0].text!r}"
         )
+
+    # Try parsing the subject as a complex el-phrase first (e.g. `el i-ésimo de la criba`).
+    el_result = _try_parse_el_phrase(tokens, strings)
+    if el_result is not None:
+        subject_expr, subject_consumed = el_result
+        rest = tokens[subject_consumed:]
+        _subject_desc = f"<el-phrase>"
+    else:
+        # Simple form: `el <noun>` (2 tokens).
+        noun = tokens[1]
+        subject_expr = Identifier(noun.lower)
+        rest = tokens[2:]
+        _subject_desc = f"el {noun.text}"
+
     if not rest:
-        raise InflexionParseError("Comparison condition: missing operator and value.")
+        raise InflexionParseError(
+            f"Comparison condition: missing operator and value after `{_subject_desc}`."
+        )
 
     # Dispatch on the operator form.
     head = rest[0].lower
@@ -910,10 +955,10 @@ def _parse_comparison_condition(
         value_tokens = rest[2:]
         if not value_tokens:
             raise InflexionParseError(
-                f"`el {noun.text} no es` is missing its comparison value."
+                f"`{_subject_desc} no es` is missing its comparison value."
             )
         return ComparisonCondition(
-            name=noun.lower, op="no_es", value=_parse_value(value_tokens, strings)
+            subject=subject_expr, op="no_es", value=_parse_value(value_tokens, strings)
         )
 
     # `es` — various forms.
@@ -926,7 +971,7 @@ def _parse_comparison_condition(
             and remainder[1].lower == "que"
         ):
             return ComparisonCondition(
-                name=noun.lower,
+                subject=subject_expr,
                 op="mayor_que",
                 value=_parse_value(remainder[2:], strings),
             )
@@ -937,7 +982,7 @@ def _parse_comparison_condition(
             and remainder[1].lower == "que"
         ):
             return ComparisonCondition(
-                name=noun.lower,
+                subject=subject_expr,
                 op="menor_que",
                 value=_parse_value(remainder[2:], strings),
             )
@@ -948,21 +993,21 @@ def _parse_comparison_condition(
             and remainder[1].lower == "por"
         ):
             return ComparisonCondition(
-                name=noun.lower,
+                subject=subject_expr,
                 op="divisible_por",
                 value=_parse_value(remainder[2:], strings),
             )
         # Plain `es N` — equality.
         if not remainder:
             raise InflexionParseError(
-                f"`el {noun.text} es` is missing its comparison value."
+                f"`{_subject_desc} es` is missing its comparison value."
             )
         return ComparisonCondition(
-            name=noun.lower, op="es", value=_parse_value(remainder, strings)
+            subject=subject_expr, op="es", value=_parse_value(remainder, strings)
         )
 
     raise InflexionParseError(
-        f"Unrecognised comparison operator after `{article.text} {noun.text}`: "
+        f"Unrecognised comparison operator after `{_subject_desc}`: "
         f"{rest[0].text!r}. Expected `es`, `no es`, `es mayor que`, "
         f"`es menor que`, or `es divisible por`."
     )
@@ -1847,15 +1892,18 @@ def _try_parse_list_index_set(
     Returns a `ListIndexSet` when the sentence is an indexed-list mutation,
     or ``None`` when it is a regular `MutationCommand`-shaped sentence.
 
-    Handles both the single-token ordinal form (``5-ésimo``) and the
-    spaCy-split form (``5``, ``-``, ``ésimo``), as well as named shortcuts
-    (``primero``, ``segundo``).
+    Handles both the single-token ordinal form (``5-ésimo``, ``i-ésimo``) and
+    the spaCy-split form (``5``, ``-``, ``ésimo`` / ``i``, ``-``, ``ésimo``),
+    as well as named shortcuts (``primero``, ``segundo``). When the ordinal
+    contains a variable identifier, the index is an ``Identifier`` node
+    resolved at runtime.
 
-    Phase 7c addition.
+    Phase 7c addition; variable-ordinal support added in Phase 7c fix.
     """
-    # Layout varies depending on whether spaCy keeps the ordinal as one token.
-    # We look for the pattern:  [hacé, que, el, <ordinal>, de, <art>, <list-name>, esté, en, <value…>]
-    # OR split form:            [hacé, que, el, N, -, ésimo, de, <art>, <list-name>, esté, en, <value…>]
+    # Layout (single-token ordinal):
+    #   [hacé, que, el, <ordinal>, de, <art>, <list-name>, esté, en, <value…>]
+    # Layout (split-token ordinal):
+    #   [hacé, que, el, <ord-tok>, -, ésimo, de, <art>, <list-name>, esté, en, <value…>]
     if len(sentence) < 10:
         return None
     if not _is_hace_imperative(sentence[0]):
@@ -1866,25 +1914,37 @@ def _try_parse_list_index_set(
         return None
 
     ordinal_tok = sentence[3]
+    index_expr_set: "Expr"
 
-    # Single-token ordinal: `5-ésimo`
-    if _ORDINAL_RE.match(ordinal_tok.text):
-        n = int(_ORDINAL_RE.match(ordinal_tok.text).group(1))  # type: ignore[union-attr]
+    # --- Single-token ordinal forms ---
+    m_num_set = _ORDINAL_RE.match(ordinal_tok.text)
+    if m_num_set:
+        # Numeric: `5-ésimo`
+        index_expr_set = IntLit(int(m_num_set.group(1)))
         de_idx = 4
     elif ordinal_tok.lower in _NAMED_ORDINALS:
-        n = _NAMED_ORDINALS[ordinal_tok.lower]
+        # Named: `primero`, `segundo`
+        index_expr_set = IntLit(_NAMED_ORDINALS[ordinal_tok.lower])
         de_idx = 4
-    # Split form: [N, -, ésimo]
-    elif (
-        ordinal_tok.is_integer_literal
-        and len(sentence) >= 11
-        and sentence[4].text == "-"
-        and sentence[5].lower in ("ésimo", "esimo", "ésima", "esima")
-    ):
-        n = int(ordinal_tok.text)
-        de_idx = 6
     else:
-        return None  # not an indexed-list mutation
+        m_var_set = _VAR_ORDINAL_RE.match(ordinal_tok.text)
+        if m_var_set:
+            # Variable: `i-ésimo`, `puntero-ésimo`
+            index_expr_set = Identifier(m_var_set.group(1).lower())
+            de_idx = 4
+        # --- Split-token ordinal forms: [<tok>, -, ésimo] ---
+        elif (
+            len(sentence) >= 11
+            and sentence[4].text == "-"
+            and sentence[5].lower in ("ésimo", "esimo", "ésima", "esima")
+        ):
+            if ordinal_tok.is_integer_literal:
+                index_expr_set = IntLit(int(ordinal_tok.text))
+            else:
+                index_expr_set = Identifier(ordinal_tok.lower)
+            de_idx = 6
+        else:
+            return None  # not an indexed-list mutation
 
     # After the ordinal: `de <article> <list-name>`
     if de_idx + 2 >= len(sentence):
@@ -1906,7 +1966,7 @@ def _try_parse_list_index_set(
     if not value_tokens:
         return None
     value = _parse_value(value_tokens, strings)
-    return ListIndexSet(index=IntLit(n), list_name=list_name, value=value)
+    return ListIndexSet(index=index_expr_set, list_name=list_name, value=value)
 
 
 def _parse_escucha(sentence: list[Token], strings: list[str]) -> "Statement":

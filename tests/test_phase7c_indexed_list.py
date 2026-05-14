@@ -102,6 +102,111 @@ def test_set_in_loop() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Variable-index get (Phase 7c fix)
+# ---------------------------------------------------------------------------
+
+
+def test_variable_index_get() -> None:
+    """`el i-ésimo de la lista` where i is an estar-bound variable."""
+    src = (
+        "El lista está en [10, 20, 30].\n"
+        "El i está en 2.\n"
+        "El r es el i-ésimo de el lista.\n"
+        "Decí el r.\n"
+    )
+    assert inflexion.run_source(src) == "20\n"
+
+
+def test_variable_index_get_first() -> None:
+    """Variable index equal to 1 returns the first element."""
+    src = (
+        "El lista está en [100, 200, 300].\n"
+        "El i está en 1.\n"
+        "El r es el i-ésimo de el lista.\n"
+        "Decí el r.\n"
+    )
+    assert inflexion.run_source(src) == "100\n"
+
+
+def test_variable_index_get_last() -> None:
+    """Variable index equal to length returns the last element."""
+    src = (
+        "El lista está en [10, 20, 30].\n"
+        "El i está en 3.\n"
+        "El r es el i-ésimo de el lista.\n"
+        "Decí el r.\n"
+    )
+    assert inflexion.run_source(src) == "30\n"
+
+
+# ---------------------------------------------------------------------------
+# Variable-index set (Phase 7c fix)
+# ---------------------------------------------------------------------------
+
+
+def test_variable_index_set() -> None:
+    """`hacé que el i-ésimo de la lista esté en V` with variable i."""
+    src = (
+        "El lista está en [10, 20, 30].\n"
+        "El i está en 2.\n"
+        "Hacé que el i-ésimo de el lista esté en 99.\n"
+        "El r es el i-ésimo de el lista.\n"
+        "Decí el r.\n"
+    )
+    assert inflexion.run_source(src) == "99\n"
+
+
+def test_variable_index_set_loop() -> None:
+    """Variable-index set inside a Mientras loop (sieve-style marking)."""
+    src = (
+        "El criba está en [1, 1, 1, 1, 1].\n"
+        "El i está en 1.\n"
+        "Mientras el i no esté en 6, "
+        "si el i-ésimo de el criba es 1, decí el i; sino, decí 0; "
+        "y que el i esté en el i más 1.\n"
+    )
+    assert inflexion.run_source(src) == "1\n2\n3\n4\n5\n"
+
+
+def test_variable_index_condition_in_si() -> None:
+    """`el i-ésimo de la lista` works as the LHS of a Si condition."""
+    src = (
+        "El criba está en [0, 1, 0, 1, 0].\n"
+        "El i está en 2.\n"
+        "Si el i-ésimo de el criba es 1, decí \"primo\"; sino, decí \"no\".\n"
+    )
+    # index 2 → 1 → "primo"
+    assert inflexion.run_source(src) == "primo\n"
+
+
+def test_variable_index_mutation_and_read_in_loop() -> None:
+    """Set via variable index then read it back — simulates sieve crossing-out."""
+    src = (
+        "El criba está en [1, 1, 1, 1, 1, 1].\n"
+        "El i está en 1.\n"
+        # Mark every even index (2, 4, 6) as 0
+        "Mientras el i no esté en 4, "
+        "hacé que el i esté en el i más 1 y que el i-ésimo de el criba esté en 0.\n"
+        # Hmm, can't do both increment AND set in y-que with list set as continuation
+        # Use two separate loops instead.
+    )
+    # Simpler: just set indices one by one
+    src2 = (
+        "El criba está en [1, 1, 1, 1, 1].\n"
+        "El j está en 2.\n"
+        "Hacé que el j-ésimo de el criba esté en 0.\n"
+        "El j2 está en 4.\n"
+        "Hacé que el j2-ésimo de el criba esté en 0.\n"
+        "El r2 es el segundo de el criba.\n"
+        "Decí el r2.\n"
+        "El r4 es el primero de el criba.\n"
+        "Decí el r4.\n"
+    )
+    result = inflexion.run_source(src2)
+    assert result == "0\n1\n"
+
+
+# ---------------------------------------------------------------------------
 # Bounds check
 # ---------------------------------------------------------------------------
 

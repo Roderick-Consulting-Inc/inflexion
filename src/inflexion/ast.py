@@ -449,10 +449,14 @@ Condition = Union[EstaCondition, NegatedCondition]
 
 @dataclass(frozen=True)
 class ComparisonCondition:
-    """Phase 7a indicative comparison: `el <name> <op> <value>`.
+    """Phase 7a indicative comparison: `el <subject-expr> <op> <value>`.
 
     Used as the condition head of a `Si` branch — distinct from the
     subjunctive `EstaCondition` / `NegatedCondition` used by `Mientras`.
+
+    `subject` is the left-hand-side expression. For simple variable tests
+    it is an `Identifier`; for indexed-list conditions it is a
+    `ListIndexGet` (or any other `Expr`).
 
     `op` is one of:
         ``"es"``            equality  (==)
@@ -462,7 +466,7 @@ class ComparisonCondition:
         ``"divisible_por"`` divisibility (% == 0), essential for FizzBuzz
     """
 
-    name: str
+    subject: "Expr"
     op: str
     value: "Expr"
 

@@ -768,8 +768,10 @@ def _eval_expr(expr: Expr, env: Environment) -> object:
 def _eval_comparison_condition(cond: ComparisonCondition, env: Environment) -> bool:
     """Evaluate a Phase 7a indicative comparison condition.
 
-    The left-hand side is looked up by name; the right-hand side is
-    evaluated as an Expr in the current scope. Comparison operators:
+    The left-hand side (`cond.subject`) is evaluated as an Expr — it may be
+    a simple `Identifier` (variable lookup) or a complex expression such as
+    `ListIndexGet` (indexed list access). The right-hand side is evaluated
+    similarly. Comparison operators:
 
         ``"es"``            Python ``==``
         ``"no_es"``         Python ``!=``
@@ -777,7 +779,7 @@ def _eval_comparison_condition(cond: ComparisonCondition, env: Environment) -> b
         ``"menor_que"``     Python ``<``
         ``"divisible_por"`` ``lhs % rhs == 0``
     """
-    lhs = env.lookup(cond.name)
+    lhs = _eval_expr(cond.subject, env)
     rhs = _eval_expr(cond.value, env)
     if cond.op == "es":
         return lhs == rhs
