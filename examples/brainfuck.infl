@@ -1,10 +1,10 @@
 El programa es "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.".
 El largo es el largo de el programa.
-La cinta está en [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].
+La tira está en [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].
 El ptr está en 1.
 El ip está en 1.
 La instruccion está en el carácter 1 de el programa.
-La celda está en el primero de la cinta.
+La celda está en el primero de la tira.
 
 La función cierre1, que toma una pos, es si el carácter la pos de el programa es "]", entonces la pos; sino, si el carácter la pos de el programa es "[", entonces buscar_cierre (la pos más 1) 2; sino, cierre1 (la pos más 1).
 La función buscar_cierre, que toma una pos y una prof, es si la prof es 1, entonces cierre1 la pos; sino, si el carácter la pos de el programa es "]", entonces buscar_cierre (la pos más 1) (la prof menos 1); sino, si el carácter la pos de el programa es "[", entonces buscar_cierre (la pos más 1) (la prof más 1); sino, buscar_cierre (la pos más 1) la prof.
@@ -16,4 +16,4 @@ La función ip_salto_abrir, que toma un ip y una celda, es si la celda es 0, ent
 La función ip_salto_cerrar, que toma un ip y una celda, es si la celda no es 0, entonces buscar_apertura (el ip menos 1) 1 menos 1; sino, el ip.
 La función instruccion_siguiente, que toma un ip y un largo, es si el ip es mayor que el largo, entonces " "; sino, el carácter el ip de el programa.
 
-Mientras el ip no esté en el largo más 1, si la instruccion es ">", hacé que el ptr esté en el ptr más 1; sino, si la instruccion es "<", hacé que el ptr esté en el ptr menos 1; sino, si la instruccion es "+", hacé que el ptr-ésimo de la cinta esté en la celda más 1; sino, si la instruccion es "-", hacé que el ptr-ésimo de la cinta esté en la celda menos 1; sino, si la instruccion es ".", escribí el carácter del código la celda; sino, si la instruccion es "[", hacé que el ip esté en ip_salto_abrir el ip la celda; sino, si la instruccion es "]", hacé que el ip esté en ip_salto_cerrar el ip la celda; sino, hacé que el ptr esté en el ptr; y que el ip esté en el ip más 1; y que la instruccion esté en instruccion_siguiente el ip el largo; y que la celda esté en el ptr-ésimo de la cinta.
+Mientras el ip no esté en el largo más 1, si la instruccion es ">", hacé que el ptr esté en el ptr más 1; sino, si la instruccion es "<", hacé que el ptr esté en el ptr menos 1; sino, si la instruccion es "+", hacé que el ptr-ésimo de la tira esté en la celda más 1; sino, si la instruccion es "-", hacé que el ptr-ésimo de la tira esté en la celda menos 1; sino, si la instruccion es ".", hablá el carácter del código la celda; sino, si la instruccion es "[", hacé que el ip esté en ip_salto_abrir el ip la celda; sino, si la instruccion es "]", hacé que el ip esté en ip_salto_cerrar el ip la celda; sino, hacé que el ptr esté en el ptr; y que el ip esté en el ip más 1; y que la instruccion esté en instruccion_siguiente el ip el largo; y que la celda esté en el ptr-ésimo de la tira.

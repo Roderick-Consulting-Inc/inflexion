@@ -54,10 +54,10 @@ from .ast import (
     ComparisonCondition,
     Condition,
     DecirCommand,
-    EscribirCommand,       # Phase 8
-    EscribirPluralCommand, # Phase 8
-    EscribirExpr,          # Phase 8
-    EscribirLiteral,       # Phase 8
+    HablarCommand,
+    HablarPluralCommand,
+    HablarExpr,
+    HablarLiteral,
     DecirExpr,
     DecirLiteral,
     DecirPluralCommand,
@@ -120,8 +120,8 @@ _CLITICS = ("nos", "los", "las", "les", "me", "te", "se", "os", "lo", "la", "le"
 _VOS_IMPERATIVE_LEMMAS = {
     "decí": "decir",
     "deci": "decir",
-    "escribí": "escribir",
-    "escribi": "escribir",
+    "hablá": "hablar",
+    "habla": "hablar",
     "hacé": "hacer",
     "hace": "hacer",
 }
@@ -1793,28 +1793,29 @@ def _parse_imperative_tokens(
     first = tokens[0]
     surface = first.lower
 
-    # `Decí` / `Escribí` followed by an object — full-NP form, plural-NP form
-    # (Phase 4), string-literal form, or an arithmetic expression. Phase 8
-    # adds `escribir` (write — token streaming, no inherent termination)
-    # alongside `decir` (say — finished utterance, terminated); the parser
-    # branch is shared, the AST node selects the runtime behaviour.
+    # `Decí` / `Hablá` followed by an object — full-NP form, plural-NP form,
+    # string-literal form, or an arithmetic expression. The pair maps the
+    # Spanish *decir* / *hablar* distinction (committed content, terminated
+    # utterance vs ongoing activity, sound-by-sound, no inherent
+    # termination); the parser branch is shared, the AST node selects the
+    # runtime behaviour.
     if surface in _VOS_IMPERATIVE_LEMMAS and _VOS_IMPERATIVE_LEMMAS[surface] in (
         "decir",
-        "escribir",
+        "hablar",
     ):
-        is_escribir = _VOS_IMPERATIVE_LEMMAS[surface] == "escribir"
-        verb_display = "Escribí" if is_escribir else "Decí"
+        is_hablar = _VOS_IMPERATIVE_LEMMAS[surface] == "hablar"
+        verb_display = "Hablá" if is_hablar else "Decí"
         if len(tokens) == 1:
             raise InflexionParseError(
                 f"`{verb_display}` without an object is not supported; either name a "
                 f"binding (`{verb_display} el saludo`), pass a string literal "
                 f"(`{verb_display} \"hola\"`), or use the enclitic form `{verb_display.replace('í', 'i')}lo`."
             )
-        # `Decí "<text>"` / `Escribí "<text>"` — direct string-literal print.
+        # `Decí "<text>"` / `Hablá "<text>"` — direct string-literal print.
         if len(tokens) == 2 and tokens[1].is_string_placeholder:
             lit = StringLit(strings[tokens[1].placeholder_index])
-            return EscribirLiteral(value=lit) if is_escribir else DecirLiteral(value=lit)
-        # `Decí los <noun>` / `Escribí los <noun>` — plural read-and-print.
+            return HablarLiteral(value=lit) if is_hablar else DecirLiteral(value=lit)
+        # `Decí los <noun>` / `Hablá los <noun>` — plural read-and-print.
         if (
             len(tokens) == 3
             and tokens[1].lower in _PLURAL_ARTICLES
@@ -1822,10 +1823,10 @@ def _parse_imperative_tokens(
         ):
             name = tokens[2].lower
             return (
-                EscribirPluralCommand(name=name) if is_escribir
+                HablarPluralCommand(name=name) if is_hablar
                 else DecirPluralCommand(name=name)
             )
-        # `Decí <sing-article> <noun>` / `Escribí <sing-article> <noun>`.
+        # `Decí <sing-article> <noun>` / `Hablá <sing-article> <noun>`.
         if (
             len(tokens) == 3
             and tokens[1].lower in _SINGULAR_ARTICLES
@@ -1833,13 +1834,13 @@ def _parse_imperative_tokens(
         ):
             name = tokens[2].lower
             return (
-                EscribirCommand(name=name) if is_escribir
+                HablarCommand(name=name) if is_hablar
                 else DecirCommand(name=name)
             )
-        # `Decí <value-expression>` / `Escribí <value-expression>` —
+        # `Decí <value-expression>` / `Hablá <value-expression>` —
         # arithmetic, list literal, plural-binding read.
         value = _parse_value(tokens[1:], strings)
-        return EscribirExpr(value=value) if is_escribir else DecirExpr(value=value)
+        return HablarExpr(value=value) if is_hablar else DecirExpr(value=value)
 
     # Phase 1 enclitic form: `Decilo`, etc. — must be a single token.
     if len(tokens) != 1:

@@ -9,10 +9,10 @@ Bracket matching is handled by a pair of recursive helper functions
 
 The canonical Hello-World BF program (106 chars) outputs "Hello World!\\n"
 (13 BF `.` operations: 12 visible chars + chr(10) for the trailing
-newline).  In Inflexión Phase 8, BF's `.` operator uses `Escribí` (the
-write-without-newline imperative — mood-imperative, token streaming) rather
-than `Decí` (the say imperative — finished utterance, terminated). The
-output is a single line "Hello World!\\n", matching standard BF host
+newline).  BF's `.` operator uses `Hablá` (the streaming-output
+imperative — mood-imperative, ongoing speech activity) rather than
+`Decí` (the say imperative — committed content, terminated utterance).
+The output is a single line "Hello World!\\n", matching standard BF host
 behaviour.
 
 Small-program unit tests swap only line 1 (`El programa es "...".`) to
@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = REPO_ROOT / "examples" / "brainfuck.infl"
 
 # Exact output from running the canonical Hello-World BF program through the
-# Inflexión interpreter (Phase 8: Escribí streams chars, no per-char newline).
+# Inflexión interpreter (Hablá streams chars, no per-char newline).
 EXPECTED_HELLO_WORLD = "Hello World!\n"
 
 
@@ -68,7 +68,7 @@ def test_brainfuck_hello_world_cli() -> None:
 
 
 def test_brainfuck_hello_world_single_line() -> None:
-    """Hello World renders as one line, not 12 — Phase 8's Escribí streams chars."""
+    """Hello World renders as one line, not 12 — Hablá streams chars."""
     assert "\n" not in EXPECTED_HELLO_WORLD.rstrip("\n")
     assert EXPECTED_HELLO_WORLD.rstrip("\n") == "Hello World!"
 

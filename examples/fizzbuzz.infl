@@ -1,2 +1,2 @@
-El i está en 1.
-Mientras el i no esté en 101, si el i es divisible por 15, decí "FizzBuzz"; sino, si el i es divisible por 3, decí "Fizz"; sino, si el i es divisible por 5, decí "Buzz"; sino, decí el i; y que el i esté en el i más 1.
+La i está en 1.
+Mientras la i no esté en 101, si la i es divisible por 15, decí "FizzBuzz"; sino, si la i es divisible por 3, decí "Fizz"; sino, si la i es divisible por 5, decí "Buzz"; sino, decí la i; y que la i esté en la i más 1.

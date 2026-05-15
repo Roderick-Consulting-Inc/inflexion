@@ -1,10 +1,10 @@
-La criba está en [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1].
-El j está en 4.
-Mientras el j no esté en 52, hacé que el j-ésimo de la criba esté en 0 y que el j esté en el j más 2.
-Hacé que el j esté en 9.
-Mientras el j no esté en 51, hacé que el j-ésimo de la criba esté en 0 y que el j esté en el j más 3.
-Hacé que el j esté en 25.
-Mientras el j no esté en 55, hacé que el j-ésimo de la criba esté en 0 y que el j esté en el j más 5.
-Hacé que el 49-ésimo de la criba esté en 0.
-El i está en 2.
-Mientras el i no esté en 51, si el i-ésimo de la criba es 1, decí el i; y que el i esté en el i más 1.
+El colador está en [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1].
+La j está en 4.
+Mientras la j no esté en 52, hacé que el j-ésimo de el colador esté en 0 y que la j esté en la j más 2.
+Hacé que la j esté en 9.
+Mientras la j no esté en 51, hacé que el j-ésimo de el colador esté en 0 y que la j esté en la j más 3.
+Hacé que la j esté en 25.
+Mientras la j no esté en 55, hacé que el j-ésimo de el colador esté en 0 y que la j esté en la j más 5.
+Hacé que el 49-ésimo de el colador esté en 0.
+La i está en 2.
+Mientras la i no esté en 51, si el i-ésimo de el colador es 1, decí la i; y que la i esté en la i más 1.
