@@ -84,6 +84,9 @@ from .ast import (
     StdinReadLine,
     StdinReadNumber,
     StringCharAt,
+    ListConcat,
+    ListPrefix,
+    ListSuffix,
     StringChars,
     StringLen,
     StringLit,
@@ -93,9 +96,10 @@ from .lexer import Token
 
 # Arithmetic operators recognised in Phase 4. Surface-form lookups.
 # `más` and `menos` were Phase 3b; `por` (multiplication) is Phase 4;
-# `entre` (division) added later — Spanish casual register: "cuatro entre dos
-# es dos". Same multiplicative precedence as `por`.
-_ARITHMETIC_OPS = {"más", "menos", "por", "entre"}
+# `entre` (division) and `módulo` (modulo) added later — Spanish casual /
+# mathematical register: "cuatro entre dos es dos"; "siete módulo tres es uno".
+# Same multiplicative precedence as `por`.
+_ARITHMETIC_OPS = {"más", "menos", "por", "entre", "módulo", "modulo"}
 
 # Singular definite + indefinite articles. The singular set is closed.
 _SINGULAR_ARTICLES = {"el", "la", "un", "una"}
@@ -248,12 +252,13 @@ _value_from_token = _atom_from_token
 def _parse_list_literal(
     tokens: list[Token], strings: list[str]
 ) -> tuple[ListLit, int]:
-    """Parse a `[<num>, <num>, ...]` list literal starting at `tokens[0]`.
+    """Parse a `[<expr>, <expr>, ...]` list literal starting at `tokens[0]`.
 
     Returns the parsed `ListLit` plus the count of tokens consumed
-    (including the closing `]`). Phase 4 restricts element types to
-    numeric literals (`IntLit` / `FloatLit`); identifiers, strings, and
-    nested collections are deferred.
+    (including the closing `]`). Originally Phase 4 restricted elements
+    to numeric literals; this version accepts any value-expression
+    (identifiers, arithmetic, function calls), so `[la x, la y más 1]`
+    works for dynamic list construction during recursive algorithms.
     """
     if not tokens or tokens[0].text != "[":
         raise InflexionParseError(  # pragma: no cover - caller filters
@@ -266,14 +271,26 @@ def _parse_list_literal(
     if i < len(tokens) and tokens[i].text == "]":
         return ListLit(elements=()), 2
     while i < len(tokens):
-        elt_tok = tokens[i]
-        if not elt_tok.is_numeric:
-            raise InflexionParseError(
-                f"Phase 4 list literal accepts only numeric elements; "
-                f"got {elt_tok.text!r}"
-            )
-        elements.append(_atom_from_token(elt_tok, strings))
-        i += 1
+        # Slice out the next element: scan to the next top-level `,` or `]`
+        # at depth 0 (account for nested `(`, `[`).
+        depth = 0
+        end = i
+        while end < len(tokens):
+            t = tokens[end].text
+            if t in ("(", "["):
+                depth += 1
+            elif t in (")", "]"):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif t == "," and depth == 0:
+                break
+            end += 1
+        if end == i:
+            raise InflexionParseError("Empty element in list literal.")
+        element_tokens = tokens[i:end]
+        elements.append(_parse_value(element_tokens, strings))
+        i = end
         if i >= len(tokens):
             break
         sep = tokens[i]
@@ -693,6 +710,28 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
         target, consumed = _parse_arith_atom(tokens[3:], strings)
         return StringChars(target=target), 3 + consumed
 
+    # List operations: `los primeros <N> de <list-expr>` and
+    # `los últimos <N> de <list-expr>` — prefix / suffix slicing.
+    if (
+        first.lower == "los"
+        and len(tokens) >= 5
+        and tokens[1].lower in ("primeros", "últimos", "ultimos")
+    ):
+        n_expr, n_consumed = _parse_arith_atom(tokens[2:], strings)
+        de_pos = 2 + n_consumed
+        if de_pos < len(tokens) and tokens[de_pos].lower == "de":
+            target, t_consumed = _parse_arith_atom(tokens[de_pos + 1 :], strings)
+            cls = ListPrefix if tokens[1].lower == "primeros" else ListSuffix
+            return cls(n=n_expr, target=target), de_pos + 1 + t_consumed
+
+    # List concatenation: `unir <expr-A> y <expr-B>`.
+    if first.lower == "unir" and len(tokens) >= 4:
+        left, left_consumed = _parse_arith_atom(tokens[1:], strings)
+        y_pos = 1 + left_consumed
+        if y_pos < len(tokens) and tokens[y_pos].lower == "y":
+            right, right_consumed = _parse_arith_atom(tokens[y_pos + 1 :], strings)
+            return ListConcat(left=left, right=right), y_pos + 1 + right_consumed
+
     if first.text == "[":
         return _parse_list_literal(tokens, strings)
 
@@ -757,7 +796,7 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
 # than `más` / `menos` (additive). Required so paper §5 Example 4's
 # `los precios menos el descuento por los precios` parses as
 # `precios − (descuento × precios)`, matching the gloss in the paper.
-_MULT_OPS = {"por", "entre"}
+_MULT_OPS = {"por", "entre", "módulo", "modulo"}
 _ADD_OPS = {"más", "menos"}
 
 
@@ -958,15 +997,38 @@ def _parse_comparison_condition(
     # Dispatch on the operator form.
     head = rest[0].lower
 
-    # `no es` — inequality.
+    # `no es` — inequality and negated comparisons.
     if head == "no" and len(rest) >= 2 and rest[1].lower == "es":
-        value_tokens = rest[2:]
-        if not value_tokens:
+        after_es = rest[2:]
+        if not after_es:
             raise InflexionParseError(
                 f"`{_subject_desc} no es` is missing its comparison value."
             )
+        # `no es mayor que N` — negated greater-than (i.e., ≤).
+        if (
+            len(after_es) >= 3
+            and after_es[0].lower == "mayor"
+            and after_es[1].lower == "que"
+        ):
+            return ComparisonCondition(
+                subject=subject_expr,
+                op="no_mayor_que",
+                value=_parse_value(after_es[2:], strings),
+            )
+        # `no es menor que N` — negated less-than (i.e., ≥).
+        if (
+            len(after_es) >= 3
+            and after_es[0].lower == "menor"
+            and after_es[1].lower == "que"
+        ):
+            return ComparisonCondition(
+                subject=subject_expr,
+                op="no_menor_que",
+                value=_parse_value(after_es[2:], strings),
+            )
+        # Plain `no es N` — inequality.
         return ComparisonCondition(
-            subject=subject_expr, op="no_es", value=_parse_value(value_tokens, strings)
+            subject=subject_expr, op="no_es", value=_parse_value(after_es, strings)
         )
 
     # `es` — various forms.
@@ -1239,12 +1301,13 @@ def _parse_body_imperative(
     if not tokens:
         raise InflexionParseError("Empty imperative body.")
     if _is_hace_imperative(tokens[0]):
-        # Use _parse_any_mutation_segment so that indexed-list set forms
-        # (`hacé que el i-ésimo de el lista esté en V`) are recognised in
-        # Si-branch bodies, not just at the top level.
-        # Note: Si-branch bodies do NOT get the y-que sequence extension
-        # (that is reserved for Mientras bodies per Phase 7a spec).
-        return _parse_any_mutation_segment(tokens, strings)
+        # Si-branch bodies accept both single-mutation and multi-clause
+        # `y que` chains. The multi-clause form lets a single conditional
+        # arm carry several effects in sequence — natural Spanish ("if X,
+        # do A and that B and that C"). Used by the RPN calculator and any
+        # algorithm that needs per-iteration multi-step state updates
+        # gated on a condition.
+        return _parse_mutation_sequence(tokens, strings)
     return _parse_imperative_tokens(tokens, strings)
 
 

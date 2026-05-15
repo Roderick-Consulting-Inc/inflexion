@@ -108,6 +108,9 @@ from .ast import (
     CodeToChar,
     ComparisonCondition,
     Condition,
+    ListConcat,
+    ListPrefix,
+    ListSuffix,
     DecirCommand,
     HablarCommand,
     HablarPluralCommand,
@@ -379,6 +382,10 @@ def _apply_scalar(op: str, left: float, right: float) -> float:
         if right == 0:
             raise InflexionRuntimeError("Division by zero: `entre 0`.")
         return left / right
+    if op in ("módulo", "modulo"):
+        if right == 0:
+            raise InflexionRuntimeError("Modulo by zero: `módulo 0`.")
+        return left % right
     raise InflexionRuntimeError(  # pragma: no cover - parser-filtered
         f"Unsupported arithmetic operator: {op!r}"
     )
@@ -709,14 +716,18 @@ def _eval_expr(expr: Expr, env: Environment) -> object:
         if _eval_comparison_condition(expr.condition, env):
             return _eval_expr(expr.then_value, env)
         return _eval_expr(expr.else_value, env)
-    # Phase 7c: string operations.
+    # Phase 7c: string operations. Phase 10 extends `el largo de` to also
+    # accept collections (lists/tuples) — the length of "the strip" or
+    # "the colander" is what a Spanish-speaker would mean by `el largo de`.
     if isinstance(expr, StringLen):
         s = _eval_expr(expr.target, env)
-        if not isinstance(s, str):
-            raise InflexionRuntimeError(
-                f"`el largo de` requires a string; got {s!r}."
-            )
-        return len(s)
+        if isinstance(s, str):
+            return len(s)
+        if isinstance(s, (list, tuple)):
+            return len(s)
+        raise InflexionRuntimeError(
+            f"`el largo de` requires a string or collection; got {s!r}."
+        )
     if isinstance(expr, StringCharAt):
         idx = _eval_expr(expr.index, env)
         s = _eval_expr(expr.target, env)
@@ -747,6 +758,44 @@ def _eval_expr(expr: Expr, env: Environment) -> object:
                 f"`el carácter del código` requires an integer; got {code!r}."
             )
         return chr(code)
+    if isinstance(expr, ListConcat):
+        left = _eval_expr(expr.left, env)
+        right = _eval_expr(expr.right, env)
+        if not isinstance(left, (list, tuple)):
+            raise InflexionRuntimeError(
+                f"`unir A y B`: left operand must be a list; got {left!r}."
+            )
+        if not isinstance(right, (list, tuple)):
+            raise InflexionRuntimeError(
+                f"`unir A y B`: right operand must be a list; got {right!r}."
+            )
+        return tuple(list(left) + list(right))
+    if isinstance(expr, ListPrefix):
+        n = _eval_expr(expr.n, env)
+        target = _eval_expr(expr.target, env)
+        if not isinstance(target, (list, tuple)):
+            raise InflexionRuntimeError(
+                f"`los primeros N de` requires a list; got {target!r}."
+            )
+        if not isinstance(n, int):
+            raise InflexionRuntimeError(
+                f"`los primeros N de` N must be an integer; got {n!r}."
+            )
+        return tuple(target[:n])
+    if isinstance(expr, ListSuffix):
+        n = _eval_expr(expr.n, env)
+        target = _eval_expr(expr.target, env)
+        if not isinstance(target, (list, tuple)):
+            raise InflexionRuntimeError(
+                f"`los últimos N de` requires a list; got {target!r}."
+            )
+        if not isinstance(n, int):
+            raise InflexionRuntimeError(
+                f"`los últimos N de` N must be an integer; got {n!r}."
+            )
+        if n == 0:
+            return ()
+        return tuple(target[-n:])
     if isinstance(expr, StringChars):
         s = _eval_expr(expr.target, env)
         if not isinstance(s, str):
@@ -797,6 +846,10 @@ def _eval_comparison_condition(cond: ComparisonCondition, env: Environment) -> b
         return lhs > rhs  # type: ignore[operator]
     if cond.op == "menor_que":
         return lhs < rhs  # type: ignore[operator]
+    if cond.op == "no_mayor_que":
+        return not (lhs > rhs)  # type: ignore[operator]
+    if cond.op == "no_menor_que":
+        return not (lhs < rhs)  # type: ignore[operator]
     if cond.op == "divisible_por":
         if not isinstance(rhs, int) or rhs == 0:
             raise InflexionRuntimeError(

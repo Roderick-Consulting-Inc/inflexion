@@ -30,7 +30,7 @@ The language is in its design phase. The first installment lays out the grammati
 
 ## Runtime status
 
-The Python interpreter is being built in phases that track the six grammatical mappings from `05` §3 and the worked examples from `05` §5. As of v0.0.10, **Phase 8 has shipped, division (`entre`) added, and the Rosetta-comparable benchmark cluster (GCD / palindromo / Pi / selection-sort) has landed**. All six grammatical mappings plus Turing completeness plus the *decir* / *hablar* distinction on imperative output are implemented end-to-end:
+The Python interpreter is being built in phases that track the six grammatical mappings from `05` §3 and the worked examples from `05` §5. As of v0.0.11, **division (`entre`) + modulo (`módulo`) operators are in, list operations (`unir` concat, `primeros/últimos` slice, dynamic literals, `largo de` on lists) are in, multi-mutation Si-arm bodies + negated comparisons (`no es mayor/menor que`) are in, and the benchmark corpus includes quicksort + RPN calculator alongside the earlier Rosetta cluster**. All six grammatical mappings plus Turing completeness plus the *decir* / *hablar* distinction on imperative output are implemented end-to-end:
 
 | Phase | Mapping covered | Example files | Status |
 |---|---|---|---|
@@ -46,7 +46,7 @@ The Python interpreter is being built in phases that track the six grammatical m
 | 7c | String operations; indexed mutable lists; stdin I/O; Turing-completeness witness (§3.8, §4.3) | `sieve.infl`, `brainfuck.infl` | **shipped (v0.0.8, `ee51822`)** |
 | 8 | `Hablá` (speak — ongoing activity, no auto-newline) sibling of `Decí` (say — committed content, terminated utterance). BF interpreter rewired to emit single-line `Hello World!` | `brainfuck.infl` (updated) | **shipped (v0.0.9)** |
 
-249 tests passing as of v0.0.10. The runtime is hand-built (Python + spaCy `es_core_news_sm` morphology + a custom rule layer for vos imperatives and irregular bare-stem resolution). Source lives in `src/inflexion/`; tests in `tests/`; runnable example programs in `examples/`.
+281 tests passing as of v0.0.11. The runtime is hand-built (Python + spaCy `es_core_news_sm` morphology + a custom rule layer for vos imperatives and irregular bare-stem resolution). Source lives in `src/inflexion/`; tests in `tests/`; runnable example programs in `examples/`.
 
 With Phase 8, the imperative-output mapping carries the *decir* / *hablar* distinction Spanish itself carries: `Decí` commits to a content utterance and terminates it (appends `\n`); `Hablá` engages in ongoing speech, sound by sound, with no inherent termination. Both are vos imperatives under the mood mapping; the verb choice selects the content-vs-activity axis. The Brainfuck interpreter's `.` operator now uses `Hablá`, so `Hello World!` renders on a single line — matching standard BF host behaviour. The operational-semantics installment (Installment 06) is now unblocked and can be drafted from the captured implementation specification.
 

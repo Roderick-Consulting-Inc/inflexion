@@ -1,6 +1,6 @@
 # Inflexión — Example Programs
 
-Eighteen `.infl` programs covering the full grammatical-semantic mapping curriculum of the paper (§3.1–§3.6), the Phase 7 / 8 extensions, and a Rosetta-comparable benchmark cluster for cross-language token-comparison studies. Programs are listed in curriculum order; the mapping columns name the paper sections each exercise.
+Twenty `.infl` programs covering the full grammatical-semantic mapping curriculum of the paper (§3.1–§3.6), the Phase 7 / 8 extensions, a Rosetta-comparable benchmark cluster, a functional 3-way quicksort, and a small RPN-calculator DSL. Programs are listed in curriculum order; the mapping columns name the paper sections each exercise.
 
 | File | Output | Mappings demonstrated | Notes |
 |------|--------|----------------------|-------|
@@ -22,6 +22,8 @@ Eighteen `.infl` programs covering the full grammatical-semantic mapping curricu
 | `palindromo.infl` | `1` / `0` / `1` | string char access + recursion, if-expression chains, function args with strings | Two-pointer recursive descent; tests *neuquen* (true), *hola* (false), *abcba* (true) |
 | `pi.infl` | `3.14149...` | `entre` (division), float arithmetic, signed accumulator, long iterative summation | Leibniz series, 10,000 terms ≈ π to 4 decimals |
 | `seleccion-sort.infl` | `[1, 2, …, 9]` | recursive `indice_min` helper + 4-clause swap inside Mientras body via y-que | Selection sort over a 9-element list; demonstrates nested recursion + indexed mutation |
+| `quicksort.infl` | `[1, 2, …, 9]` | recursive 3-way partition, `unir` (concat), dynamic list literals `[el idx-ésimo de la xs]`, negated comparison (`no es menor que`) | Functional quicksort in three lines; pure-recursive, no mutation; correctly handles duplicates |
+| `calculadora.infl` | `14` | char-by-char string scan, stack via estar-bound list + top pointer, multi-mutation Si arms (one mutation chain per operator) | Postfix (RPN) calculator: `"5 1 2 + 4 * + 3 -"` → 14. Single-digit operands, ops `+`, `-`, `*`, `/`. |
 
 ## Running an example
 

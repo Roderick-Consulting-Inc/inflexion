@@ -1,0 +1,10 @@
+La fuente es "5 1 2 + 4 * + 3 -".
+La pila está en [0, 0, 0, 0, 0, 0, 0, 0, 0, 0].
+La top está en 0.
+La aux está en 0.
+La n es el largo de la fuente.
+La i está en 1.
+
+Mientras la i no esté en (la n más 1), si el carácter la i de la fuente es " ", hacé que la i esté en la i; sino, si el carácter la i de la fuente es "+", hacé que la aux esté en el top-ésimo de la pila y que la top esté en la top menos 1 y que el top-ésimo de la pila esté en (el top-ésimo de la pila) más la aux; sino, si el carácter la i de la fuente es "-", hacé que la aux esté en el top-ésimo de la pila y que la top esté en la top menos 1 y que el top-ésimo de la pila esté en (el top-ésimo de la pila) menos la aux; sino, si el carácter la i de la fuente es "*", hacé que la aux esté en el top-ésimo de la pila y que la top esté en la top menos 1 y que el top-ésimo de la pila esté en (el top-ésimo de la pila) por la aux; sino, si el carácter la i de la fuente es "/", hacé que la aux esté en el top-ésimo de la pila y que la top esté en la top menos 1 y que el top-ésimo de la pila esté en (el top-ésimo de la pila) entre la aux; sino, hacé que la top esté en la top más 1 y que el top-ésimo de la pila esté en (el código de el carácter la i de la fuente) menos 48; y que la i esté en la i más 1.
+
+Decí el top-ésimo de la pila.

@@ -1,0 +1,5 @@
+La función pequeños, que toma una xs, un pivote, una idx y una acc, es si la idx es mayor que el largo de la xs, entonces la acc; sino, si el idx-ésimo de la xs es menor que el pivote, entonces pequeños la xs el pivote (la idx más 1) (unir la acc y [el idx-ésimo de la xs]); sino, pequeños la xs el pivote (la idx más 1) la acc.
+La función grandes, que toma una xs, un pivote, una idx y una acc, es si la idx es mayor que el largo de la xs, entonces la acc; sino, si el idx-ésimo de la xs no es menor que el pivote, entonces grandes la xs el pivote (la idx más 1) (unir la acc y [el idx-ésimo de la xs]); sino, grandes la xs el pivote (la idx más 1) la acc.
+La función quicksort, que toma una xs, es si el largo de la xs es menor que 2, entonces la xs; sino, unir (quicksort (pequeños la xs (el primero de la xs) 2 [])) y (unir [el primero de la xs] y (quicksort (grandes la xs (el primero de la xs) 2 []))).
+La lista está en [5, 2, 8, 1, 9, 3, 7, 4, 6].
+Decí quicksort la lista.

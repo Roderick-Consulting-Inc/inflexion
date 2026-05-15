@@ -2,6 +2,73 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.11] — 2026-05-15
+
+### Added — `módulo`, list operations, dynamic list literals, multi-mutation Si arms
+
+A cluster of runtime extensions to close the named feature gaps from
+v0.0.10 (true D&C sorting, expression interpreter, modulo arithmetic):
+
+- **`módulo` / `modulo` arithmetic operator** — Spanish mathematical
+  register, *siete módulo tres es uno*. Multiplicative precedence (same
+  as `por` / `entre`). Modulo by zero raises `InflexionRuntimeError`.
+  Enables the canonical Euclidean `gcd(a,b) = gcd(b, a mod b)`.
+- **`el largo de` extended to collections** — was string-only; now
+  returns the length of a list/tuple too, matching the natural Spanish
+  reading.
+- **`unir A y B`** — list concatenation. Spanish *unir* (to unite, to
+  join). Distinct from `más` on collections (which is elementwise
+  addition by Phase 4 broadcasting).
+- **`los primeros N de` / `los últimos N de`** — prefix / suffix
+  slicing on lists.
+- **Dynamic list literals** — list literals now accept any value
+  expression as elements (identifiers, arithmetic, function calls,
+  indexed access), so `[la x]`, `[el primero de la xs, la y más 1]`
+  parse correctly. Previously only numeric literals were allowed.
+- **Multi-mutation Si-arm bodies** — Si-branch bodies (in both `Si …`
+  statements and Si-inside-Mientras compound bodies) now accept the
+  same `y que …` multi-clause mutation syntax as Mientras bodies. A
+  single conditional arm can now carry several effects in sequence —
+  natural Spanish ("si X, hacé A y que B y que C"). Required by the
+  RPN calculator (each operator dispatch needs multiple stack
+  mutations) and by any iterative algorithm with conditional
+  multi-step state updates.
+- **Negated comparisons in Si conditions** — `no es mayor que N`
+  (≤) and `no es menor que N` (≥). Required to keep all of `<`, `≤`,
+  `>`, `≥` available; previously only `>` and `<` were directly
+  expressible.
+
+### Added — Quicksort + RPN calculator
+
+Two new example programs demonstrate the new primitives:
+
+- **`quicksort.infl`** — Functional 3-way quicksort. Recursive D&C
+  using `unir` + dynamic list literals (`[el idx-ésimo de la xs]`)
+  + recursive predicate helpers (`pequeños` keeps elements `< pivote`;
+  `grandes` keeps elements `no es menor que pivote`, so duplicates
+  land on the right side). Three lines of Inflexión. Pure-functional,
+  no mutation. Handles duplicates, already-sorted, reverse-sorted,
+  singleton, empty.
+- **`calculadora.infl`** — Postfix (RPN) calculator. Tokenizes a
+  single string of single-digit operands + `+`, `-`, `*`, `/` ops
+  separated by spaces, evaluates via a stack (estar-bound list with
+  a `top` pointer). Demonstrates the small-DSL-interpreter pattern in
+  Inflexión: char-by-char scan, dispatch on character, multi-mutation
+  per operator (aux ← top; top--; stack[top] ← stack[top] OP aux).
+  Default expression `"5 1 2 + 4 * + 3 -"` evaluates to 14.
+
+### Changed — `gcd.infl` rewritten
+
+The previous subtractive Euclidean now uses the canonical modulo form:
+`gcd(a, b) = if b == 0: a else gcd(b, a mod b)`. Recursive function call
+form, one line.
+
+### Tests
+
+- +32 tests across `tests/test_{quicksort,calculadora,runtime_extensions}.py`
+  plus the `gcd` test updates.
+- 249 → 281 passing.
+
 ## [0.0.10] — 2026-05-15
 
 ### Added — `entre` (division) arithmetic operator

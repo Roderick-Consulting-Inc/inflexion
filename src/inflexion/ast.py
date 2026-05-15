@@ -205,6 +205,9 @@ Expr = Union[
     "CharCode",       # Phase 7c
     "CodeToChar",     # Phase 7c
     "StringChars",    # Phase 7c
+    "ListConcat",     # list operations
+    "ListPrefix",     # list operations
+    "ListSuffix",     # list operations
     "ListIndexGet",   # Phase 7c
 ]
 
@@ -647,6 +650,34 @@ class ListIndexSet:
     index: "Expr"
     list_name: str
     value: "Expr"
+
+
+@dataclass(frozen=True)
+class ListConcat:
+    """`unir <list-A> y <list-B>` — concatenate two lists, returning a new list.
+
+    Spanish *unir* — to unite, to join. Distinct from `más` (which on
+    collections does element-wise addition by Phase 4 broadcasting).
+    """
+
+    left: "Expr"
+    right: "Expr"
+
+
+@dataclass(frozen=True)
+class ListPrefix:
+    """`los primeros <N> de <list-expr>` — first N elements (1-indexed prefix)."""
+
+    n: "Expr"
+    target: "Expr"
+
+
+@dataclass(frozen=True)
+class ListSuffix:
+    """`los últimos <N> de <list-expr>` — last N elements (suffix)."""
+
+    n: "Expr"
+    target: "Expr"
 
 
 @dataclass(frozen=True)

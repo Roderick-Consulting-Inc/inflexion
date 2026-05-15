@@ -1,4 +1,2 @@
-La a está en 48.
-La b está en 18.
-Mientras la a no esté en la b, si la a es mayor que la b, hacé que la a esté en la a menos la b; sino, hacé que la b esté en la b menos la a.
-Decí la a.
+La función gcd, que toma una a y una b, es si la b es 0, entonces la a; sino, gcd la b (la a módulo la b).
+Decí gcd 48 18.
