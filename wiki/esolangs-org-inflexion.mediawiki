@@ -1,0 +1,159 @@
+{{infobox proglang
+|name=Inflexión
+|paradigms=imperative, natural-language–based, inflection-driven
+|author=[[:User:Rrodriguez|Ramon Rodriguez]]
+|year=[[:Category:2026|2026]]
+|class=[[:Category:Turing complete|Turing complete]]
+|files=<code>.infl</code>
+|majorimpl=[https://github.com/Roderick-Consulting-Inc/inflexion Inflexión Python interpreter]
+|influence=[[Lingua::Romana::Perligata|Perligata]], [[Wenyan]], [[Tampio]], Espro
+}}
+
+'''Inflexión''' is a hand-built esoteric programming language whose surface syntax flows from the morphological features of Rioplatense Argentine Spanish. The six grammatical-semantic mappings — between '''number''', '''mood''', '''aspect''', the {{w|Spanish copula|''ser''/''estar'' split}}, {{w|Clitic doubling|clitic ordering}}, and {{w|Diminutive#Spanish|diminutive / augmentative morphology}} — carry the language's semantic load. A program in Inflexión that reads as Spanish prose to a Spanish-speaking reader is, simultaneously, a program in which number, mood, aspect, and copular choice determine what the program does.
+
+Inflexión joins a small lineage of inflection-driven, non-English natural-language esolangs: [[Lingua::Romana::Perligata|''Lingua::Romana::Perligata'']] (Latin, Damian Conway, 2000), Espro (Esperanto, 2015, idea-only), [[Tampio]] (Finnish, Iikka Hauhio, ~2017–present), and [[Wenyan]] (Classical Chinese, Lingdong Huang, 2019). It is the first member of that lineage to use a living [[:Category:Romance|Romance]] language, and the first (to the best of the author's knowledge) to make the ''ser''/''estar'', mood, aspect, clitic-ordering, diminutive, and number-agreement systems jointly load-bearing.
+
+== Language overview ==
+
+Inflexión's six grammatical-semantic mappings are:
+
+* '''Number''' (singular vs plural). The article on a noun marks the cell's shape: ''el precio'' is a scalar binding, ''los precios'' is a collection. Arithmetic on a collection broadcasts elementwise. Article–noun number mismatch is a runtime error.
+* '''Mood''' (indicative / subjunctive / imperative). Indicative ''es'' / ''está'' performs eager binding; subjunctive ''esté'' marks deferred / hypothetical clauses (used by both ''Cuando ... esté en ...'' deferred bindings and ''Mientras ... esté en ...'' loop conditions); imperative ''Decí'', ''Hablá'', ''Hacé'' perform side effects.
+* '''Aspect''' (perfective vs imperfective). The verb suffix selects evaluation strategy: ''sumó los precios'' is eager (returns a value); ''sumaba los precios'' is lazy (returns a stream of partial results). The eight-letter shared stem and the two-letter aspect-marker carry the entire eager-versus-lazy distinction.
+* '''The ser/estar split.''' ''El x es V'' creates an immutable binding; ''El x está en V'' creates a mutable cell. Mutation goes through ''Hacé que el x esté en V''; an attempt to re-bind a ''ser'' cell is a runtime error.
+* '''Clitic ordering.''' The fixed Spanish enclitic sequence ''se-te-me-lo-le'' on a ''vos''-imperative verb (''Transferíselo'', ''Dámelo'') routes arguments by position in that order.
+* '''Diminutive and augmentative morphology.''' The diminutive suffixes ''-ito''/''-ita''/''-cito''/''-cita'' scale numeric values by ½; augmentative suffixes ''-ón''/''-ona''/''-azo''/''-aza'' scale by 2 or 4. A diminutive on a function name (''busquito'' vs ''buscar'') invokes a cheap variant of the function.
+
+The dialect is Rioplatense (Argentine), with ''vos''-form verbs throughout (''decí'', ''hacé'', ''hablá'', ''escuchá'') and lunfardo-aware vocabulary. The dialect choice is named and defended in the design paper.
+
+The runtime adds a small set of operational primitives that do not themselves carry semantic load through morphology — they exist for the same reason ordinary programming languages have them. These include conditional dispatch via ''Si ... sino ...'', function definition via the relative-clause form ''La función f, que toma una x y una y, es ...'', recursion via parenthesised arguments ''fact (la n menos 1)'', string and list operations (length, character access, indexed read/write, concatenation, slicing), the arithmetic operators ''más'' / ''menos'' / ''por'' / ''entre'' / ''módulo'' (+, −, ×, /, mod), and stdin via ''Escuchá''.
+
+== Examples ==
+
+=== Hello, World! ===
+
+<pre>
+El saludo es "Hola, mundo".
+Decilo.
+</pre>
+
+''Decilo'' is the ''vos''-imperative of ''decir'' (to say) with the third-person direct-object clitic ''lo'' enclitic, dereferencing the most-recent binding.
+
+=== Cat ===
+
+<pre>
+Escuchá una línea en la entrada.
+Decí la entrada.
+</pre>
+
+Reads one line from stdin and writes it to stdout. The article ''la'' is feminine because the binding name ''entrada'' (entry) is a feminine noun in Spanish.
+
+=== Truth machine ===
+
+<pre>
+Escuchá un número en la entrada.
+Si la entrada es 0, decí 0.
+Mientras la entrada no esté en 0, decí 1.
+</pre>
+
+If the input is 0, prints ''0'' and halts. If the input is non-zero, prints ''1'' until the runtime's 100,000-iteration ''mientras'' safety cap fires and raises a runtime error. The classical truth machine loops forever; Inflexión's runtime declines to honour that, on the ground that unbounded iteration is rarely what a Spanish-prose program is asking for.
+
+=== FizzBuzz ===
+
+<pre>
+La i está en 1.
+Mientras la i no esté en 101,
+  si la i es divisible por 15, decí "FizzBuzz";
+  sino, si la i es divisible por 3, decí "Fizz";
+  sino, si la i es divisible por 5, decí "Buzz";
+  sino, decí la i;
+  y que la i esté en la i más 1.
+</pre>
+
+Note the article ''la'' on the single-letter variable ''i'' — letters of the Spanish alphabet are feminine (''la letra i''), so single-letter variable names take ''la'' rather than ''el''.
+
+=== Fibonacci (recursive) ===
+
+<pre>
+La función fib, que toma una n, es
+  si la n es 0, entonces 0;
+  sino, si la n es 1, entonces 1;
+  sino, fib (la n menos 1) más fib (la n menos 2).
+Decí fib 10.
+</pre>
+
+Demonstrates recursion via the parenthesised-argument form. The parentheses around ''la n menos 1'' disambiguate where the recursive call's argument ends — without them, the parser would read ''(fib la n) menos 1''.
+
+=== Quicksort ===
+
+<pre>
+La función pequeños, que toma una xs, un pivote, una idx y una acc, es
+  si la idx es mayor que el largo de la xs, entonces la acc;
+  sino, si el idx-ésimo de la xs es menor que el pivote,
+    entonces pequeños la xs el pivote (la idx más 1) (unir la acc y [el idx-ésimo de la xs]);
+    sino, pequeños la xs el pivote (la idx más 1) la acc.
+La función grandes, que toma una xs, un pivote, una idx y una acc, es
+  si la idx es mayor que el largo de la xs, entonces la acc;
+  sino, si el idx-ésimo de la xs no es menor que el pivote,
+    entonces grandes la xs el pivote (la idx más 1) (unir la acc y [el idx-ésimo de la xs]);
+    sino, grandes la xs el pivote (la idx más 1) la acc.
+La función quicksort, que toma una xs, es
+  si el largo de la xs es menor que 2, entonces la xs;
+  sino, unir (quicksort (pequeños la xs (el primero de la xs) 2 []))
+         y (unir [el primero de la xs] y (quicksort (grandes la xs (el primero de la xs) 2 []))).
+La lista está en [5, 2, 8, 1, 9, 3, 7, 4, 6].
+Decí quicksort la lista.
+</pre>
+
+Pure-functional 3-way quicksort using list concatenation (''unir A y B''), dynamic list literals (''[el idx-ésimo de la xs]''), and the negated-comparison condition ''no es menor que'' (≥). No mutation; recursive descent only.
+
+=== Brainfuck interpreter ===
+
+The example corpus includes a working [[Brainfuck]] interpreter written in Inflexión, ~3000 characters, that runs the canonical 106-character ''Hello, World!'' BF program end-to-end. This serves as the Turing-completeness witness for the language. See the source at <code>examples/brainfuck.infl</code> in the implementation repository.
+
+== Computational class ==
+
+Turing-complete. The witness is the Brainfuck interpreter described above. The design paper argues that ''mientras'' iteration combined with self-referential ''ser'' recursion is in principle sufficient for Turing-completeness; the BF interpreter establishes it concretely.
+
+A practical caveat: the Python implementation imposes a 100,000-iteration safety cap on ''mientras'' loops. Programs that intentionally iterate without bound (such as a textbook truth machine) terminate with a runtime error when the cap fires. The cap can be configured at runtime if desired; the default reflects a design choice rather than a theoretical limit.
+
+== Implementation ==
+
+The reference implementation is a Python interpreter at [https://github.com/Roderick-Consulting-Inc/inflexion github.com/Roderick-Consulting-Inc/inflexion]. The lexer combines [https://spacy.io/ spaCy]'s ''es_core_news_sm'' Spanish morphological model with a custom rule layer for Rioplatense ''vos''-imperatives and enclitic clitic stacks (''Transferíselo'', ''Dámelo''), the ordinal-positional suffix ''-ésimo'' for variable indexing into lists (''el i-ésimo de la lista''), and the diminutive/augmentative suffix table. The parser is hand-written recursive-descent; the interpreter is big-step recursive over the AST.
+
+A live web playground for the runtime is at [https://babel.roderickc.com babel.roderickc.com], with all twenty example programs runnable from the "Inflexión" tab.
+
+== External resources ==
+
+* '''Design paper''' (first installment, the language proposal and the six mappings): [https://www.roderickc.com/inflexion/white-paper roderickc.com/inflexion/white-paper]
+* '''Operational semantics paper''' (second installment, the formal specification): [https://www.roderickc.com/inflexion/operational-semantics roderickc.com/inflexion/operational-semantics]
+* '''Source code''' (Python interpreter, Apache 2.0): [https://github.com/Roderick-Consulting-Inc/inflexion github.com/Roderick-Consulting-Inc/inflexion]
+* '''Live playground''' (in-browser interpreter): [https://babel.roderickc.com babel.roderickc.com]
+* '''Article series''' (long-form, LinkedIn-syndicated): [https://www.roderickc.com/babel/articles roderickc.com/babel/articles]
+* '''Companion methodology paper''' (Babel — parameter-driven generation of esoteric languages): [https://www.roderickc.com/babel roderickc.com/babel]
+
+== History ==
+
+* '''2026-05-09''': Project naming finalised as ''Inflexión''.
+* '''2026-05-12''': Phase 1 of the runtime ships (the ''Decilo'' vertical slice).
+* '''2026-05-13''': Six grammatical-semantic mappings implemented end-to-end. Design paper (Installment 1) published.
+* '''2026-05-14''': Brainfuck interpreter ships; the design paper's Turing-completeness witness is concrete.
+* '''2026-05-15''': Operational semantics paper (Installment 2) published. Runtime at v0.0.11.
+
+== References ==
+
+The lineage citations from the design paper:
+
+* Conway, Damian. ''Lingua::Romana::Perligata''. 2000. [https://metacpan.org/pod/Lingua::Romana::Perligata MetaCPAN].
+* Huang, Lingdong. ''Wenyan''. 2019. [https://github.com/wenyan-lang/wenyan GitHub].
+* Hauhio, Iikka. ''Tampio''. ~2017–present. [https://github.com/fergusq/tampio GitHub].
+* Müller, Urban. ''Brainfuck''. 1993. (Referenced as the Turing-completeness witness for Inflexión via the BF interpreter.)
+
+[[Category:Languages]]
+[[Category:2026]]
+[[Category:Imperative paradigm]]
+[[Category:Inflection-driven]]
+[[Category:Natural language-based]]
+[[Category:Implemented]]
+[[Category:Turing complete]]
+[[Category:File extension .infl]]

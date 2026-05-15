@@ -21,7 +21,7 @@ from .interpreter import Environment, run as _run_program
 from .lexer import lex
 from .parser import parse
 
-__version__ = "0.0.11"
+__version__ = "0.0.12"
 
 __all__ = ["run_source", "run_file", "__version__"]
 

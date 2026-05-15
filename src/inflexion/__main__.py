@@ -10,7 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, run_file
+from . import __version__, run_source
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,7 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        output = run_file(args.path)
+        source = args.path.read_text(encoding="utf-8")
+        # If stdin is piped (not a TTY), forward it to the runtime so
+        # `Escuchá` can consume from it. Interactive use passes empty
+        # stdin, which is fine for programs that don't read.
+        stdin_data = "" if sys.stdin.isatty() else sys.stdin.read()
+        output = run_source(source, stdin=stdin_data)
         sys.stdout.write(output)
         return 0
 

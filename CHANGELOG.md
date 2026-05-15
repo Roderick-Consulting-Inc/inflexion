@@ -2,6 +2,40 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.12] — 2026-05-15
+
+### Added — CLI stdin forwarding + two classic esolang examples
+
+The CLI (`python -m inflexion run <file.infl>`) now forwards `sys.stdin`
+to the runtime when stdin is not a TTY. Piping input through the CLI
+(`echo "hola" | python -m inflexion run gato.infl`) now feeds `Escuchá`
+correctly. Interactive (TTY) use is unaffected — programs that don't
+read stdin still work fine.
+
+Two new example programs, both classic esolang-wiki traditions:
+
+- **`examples/gato.infl`** — Cat program. Reads a line from stdin and
+  echoes it. Two lines: `Escuchá una línea en la entrada.` /
+  `Decí la entrada.`
+- **`examples/verdad.infl`** — Truth machine. If input is 0, prints
+  `0` and halts; if non-zero, prints `1` until the 100,000-iteration
+  `Mientras` safety cap fires (the runtime's design choice to bound
+  unbounded iteration; documented in the esolang wiki entry).
+
+### Added — esolang wiki article draft
+
+`wiki/esolangs-org-inflexion.mediawiki` — a MediaWiki-formatted article
+draft for submission to esolangs.org. Includes infobox, six-mapping
+overview, five example programs (Hello World, cat, truth machine,
+FizzBuzz, recursive Fibonacci, quicksort, BF-interpreter pointer),
+computational class with the safety-cap caveat, lineage citations,
+external resource links.
+
+### Tests
+
+- +5 tests across `tests/test_{gato,verdad}.py`.
+- 281 → 286 passing.
+
 ## [0.0.11] — 2026-05-15
 
 ### Added — `módulo`, list operations, dynamic list literals, multi-mutation Si arms

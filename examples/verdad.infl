@@ -1,0 +1,3 @@
+Escuchá un número en la entrada.
+Si la entrada es 0, decí 0.
+Mientras la entrada no esté en 0, decí 1.
