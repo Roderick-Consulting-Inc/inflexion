@@ -1,0 +1,5 @@
+La función palindromo_ayuda, que toma una palabra, una izq y una der, es si la izq es mayor que la der, entonces 1; sino, si la izq es la der, entonces 1; sino, si el carácter la izq de la palabra es el carácter la der de la palabra, entonces palindromo_ayuda la palabra (la izq más 1) (la der menos 1); sino, 0.
+La función palindromo, que toma una palabra, es palindromo_ayuda la palabra 1 (el largo de la palabra).
+Decí palindromo "neuquen".
+Decí palindromo "hola".
+Decí palindromo "abcba".

@@ -375,6 +375,10 @@ def _apply_scalar(op: str, left: float, right: float) -> float:
         return left - right
     if op == "por":
         return left * right
+    if op == "entre":
+        if right == 0:
+            raise InflexionRuntimeError("Division by zero: `entre 0`.")
+        return left / right
     raise InflexionRuntimeError(  # pragma: no cover - parser-filtered
         f"Unsupported arithmetic operator: {op!r}"
     )

@@ -1,0 +1,4 @@
+La a está en 48.
+La b está en 18.
+Mientras la a no esté en la b, si la a es mayor que la b, hacé que la a esté en la a menos la b; sino, hacé que la b esté en la b menos la a.
+Decí la a.

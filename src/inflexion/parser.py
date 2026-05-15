@@ -92,8 +92,10 @@ from .ast import (
 from .lexer import Token
 
 # Arithmetic operators recognised in Phase 4. Surface-form lookups.
-# `más` and `menos` were Phase 3b; `por` (multiplication) is Phase 4.
-_ARITHMETIC_OPS = {"más", "menos", "por"}
+# `más` and `menos` were Phase 3b; `por` (multiplication) is Phase 4;
+# `entre` (division) added later — Spanish casual register: "cuatro entre dos
+# es dos". Same multiplicative precedence as `por`.
+_ARITHMETIC_OPS = {"más", "menos", "por", "entre"}
 
 # Singular definite + indefinite articles. The singular set is closed.
 _SINGULAR_ARTICLES = {"el", "la", "un", "una"}
@@ -755,7 +757,7 @@ def _parse_arith_atom(tokens: list[Token], strings: list[str]) -> tuple[Expr, in
 # than `más` / `menos` (additive). Required so paper §5 Example 4's
 # `los precios menos el descuento por los precios` parses as
 # `precios − (descuento × precios)`, matching the gloss in the paper.
-_MULT_OPS = {"por"}
+_MULT_OPS = {"por", "entre"}
 _ADD_OPS = {"más", "menos"}
 
 

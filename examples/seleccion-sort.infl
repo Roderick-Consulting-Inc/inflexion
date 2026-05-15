@@ -1,0 +1,10 @@
+La lista está en [5, 2, 8, 1, 9, 3, 7, 4, 6].
+La n está en 9.
+La aux está en 0.
+La m está en 0.
+
+La función indice_min, que toma una lista, una desde, una hasta, una idx, es si la desde es mayor que la hasta, entonces la idx; sino, si el desde-ésimo de la lista es menor que el idx-ésimo de la lista, entonces indice_min la lista (la desde más 1) la hasta la desde; sino, indice_min la lista (la desde más 1) la hasta la idx.
+
+La i está en 1.
+Mientras la i no esté en la n, hacé que la m esté en indice_min la lista (la i más 1) la n la i y que la aux esté en el i-ésimo de la lista y que el i-ésimo de la lista esté en el m-ésimo de la lista y que el m-ésimo de la lista esté en la aux y que la i esté en la i más 1.
+Decí la lista.

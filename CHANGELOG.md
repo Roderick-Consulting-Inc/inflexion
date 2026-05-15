@@ -2,6 +2,45 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.10] — 2026-05-15
+
+### Added — `entre` (division) arithmetic operator
+
+Spanish casual register uses *entre* for division: *cuatro entre dos es
+dos*. Joins *más* (+) / *menos* (−) / *por* (×) in the arithmetic
+operator set. Same multiplicative precedence as *por*. Division by zero
+raises `InflexionRuntimeError`.
+
+### Added — Rosetta-comparable benchmark cluster (4 programs)
+
+Four new example programs expand the corpus for cross-language token /
+character / morpheme comparison (the empirical lever for Installment 07's
+LLM-prompting cascade) and add classical recursive / iterative
+demonstrations beyond the original six-mapping curriculum:
+
+- **`gcd.infl`** — Subtractive Euclidean algorithm. Demonstrates
+  conditional dispatch (Si la a es mayor que la b) inside a Mientras
+  body with variable-to-variable comparison. `gcd(48, 18) = 6`.
+- **`palindromo.infl`** — Recursive palindrome check via two-pointer
+  descent. Demonstrates string char access, recursion, character
+  comparison, and the `largo de` string-length op. Tests: *neuquen* →
+  1, *hola* → 0, *abcba* → 1.
+- **`pi.infl`** — Pi approximation via the Leibniz series
+  (4 × (1 − 1/3 + 1/5 − 1/7 + …)). Demonstrates the new `entre`
+  division operator, float arithmetic, a signed accumulator (sign flips
+  via `el signo esté en 0 menos el signo`), and a long iterative
+  summation. 10,000 terms gives ~4 decimal digits of π.
+- **`seleccion-sort.infl`** — In-place selection sort via a recursive
+  `indice_min` helper plus a 4-clause swap inside the outer Mientras
+  body (aux ← list[i]; list[i] ← list[m]; list[m] ← aux; i ← i + 1).
+  Demonstrates nested recursive helper + sequential y-que mutation +
+  variable-indexed list set.
+
+### Tests
+
+- +11 program-level tests across `tests/test_{gcd,palindromo,pi,seleccion_sort}.py`.
+- 249 passing (238 → 249).
+
 ## [0.0.9] — 2026-05-14
 
 ### Added — `Hablá` imperative (streaming output, no auto-newline)
