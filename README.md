@@ -20,7 +20,7 @@ This repository is in its planning phase. The intellectual work is laid out in a
 |---|---|---|
 | 05 | [White paper: Inflexión](plans/05-whitepaper-inflexion.md) | The design move, the dialect choice, the six grammatical mappings, worked examples, the LLM-prompting hypothesis, the Turing-completeness argument, and a naming coda |
 
-The foundation documents (motivation, inspiration, position) and the companion methodology paper (Babel) live in the sibling [Babel repository](../Babel/) under [`/data/rci/Babel/plans/`](../Babel/plans/). A reader who comes to Inflexión cold is welcome to read `05` on its own; a reader interested in the broader research project should follow the cross-references back to the Babel foundation documents for context.
+The foundation documents (motivation, inspiration, position) and the companion methodology paper (Babel) live in the sibling Babel repository. A reader who comes to Inflexión cold is welcome to read `05` on its own; a reader interested in the broader research project should follow the cross-references back to the Babel foundation documents for context.
 
 ## What this is and is not
 
@@ -52,7 +52,7 @@ With Phase 8, the imperative-output mapping carries the *decir* / *hablar* disti
 
 ## Naming
 
-The language was carried under the placeholder `«»` through the first complete draft and named *Inflexión* on 2026-05-09. The naming exercise — what the four candidate dimensions were, why the *mechanism* dimension won, and why *Inflexión* specifically over *Flexión*, *Concordancia*, *Conjugación*, and *Morfema* — is documented in `05` §11. The directory is `/data/rci/Inflexion/` (ASCII-safe); the language name keeps the accent.
+The language was carried under the placeholder `«»` through the first complete draft and named *Inflexión* on 2026-05-09. The naming exercise — what the four candidate dimensions were, why the *mechanism* dimension won, and why *Inflexión* specifically over *Flexión*, *Concordancia*, *Conjugación*, and *Morfema* — is documented in `05` §11.
 
 ## Citation infrastructure
 
