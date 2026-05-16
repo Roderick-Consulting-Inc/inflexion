@@ -691,5 +691,5 @@ The runtime is described; the choices remaining are design choices, not implemen
 
 ---
 
-*Inflexión is a hand-built esoteric programming language whose semantics flow from the grammatical features of Rioplatense Argentine Spanish. The first installment (the design paper) is at roderickc.com/inflexion. The implementation lives at <https://github.com/Roderick-Consulting-Inc/inflexion>. The companion methodology paper, on Babel — the runtime that generates esoteric programming languages from parameter sheets — is at roderickc.com/babel.*
+*Inflexión is a hand-built esoteric programming language whose semantics flow from the grammatical features of Rioplatense Argentine Spanish. The first installment (the design paper) is at <https://www.roderickc.com/inflexion>. The implementation lives at <https://github.com/Roderick-Consulting-Inc/inflexion>, and the language is catalogued on the esolangs.org wiki at <https://esolangs.org/wiki/Inflexión>. The companion methodology paper, on Babel — the runtime that generates esoteric programming languages from parameter sheets — is at <https://www.roderickc.com/babel>.*
 
