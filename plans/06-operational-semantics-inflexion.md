@@ -12,7 +12,7 @@ csl: ../../Babel/csl/chicago-author-date.csl
 link-citations: true
 ---
 
-> *White paper, third installment of the Babel / Inflexión series, companion to `04-whitepaper-babel.md` (Babel methodology) and `05-whitepaper-inflexion.md` (Inflexión design). Style: Chicago author-date via pandoc + BibTeX. Voice: precise for the technical audience, but the prose register stays continuous with the design paper. Citations are BibTeX keys (`[@key]`) and resolve through the shared `references.bib` in the Babel repository.*
+> *White paper, third installment of the Babel / Inflexión series, companion to [`04-whitepaper-babel.md`](https://github.com/Roderick-Consulting-Inc/babel/blob/main/plans/04-whitepaper-babel.md) (Babel methodology) and [`05-whitepaper-inflexion.md`](https://github.com/Roderick-Consulting-Inc/inflexion/blob/main/plans/05-whitepaper-inflexion.md) (Inflexión design). Style: Chicago author-date via pandoc + BibTeX. Voice: precise for the technical audience, but the prose register stays continuous with the design paper. Citations are BibTeX keys (`[@key]`) and resolve through the shared [`references.bib`](https://github.com/Roderick-Consulting-Inc/babel/blob/main/references.bib) in the [Babel repository](https://github.com/Roderick-Consulting-Inc/babel).*
 
 ## 1. Introduction
 
