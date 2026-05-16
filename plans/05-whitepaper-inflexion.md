@@ -12,7 +12,7 @@ csl: ../../Babel/csl/chicago-author-date.csl
 link-citations: true
 ---
 
-> *White paper, second installment of the Babel / Inflexión series, companion to `04-whitepaper-babel.md`. Style: Chicago author-date via pandoc + BibTeX. Voice: essayistic for curious minds. Citations are BibTeX keys (`[@key]`) and resolve through the shared `references.bib` in the Babel repository.*
+> *White paper, second installment of the Babel / Inflexión series, companion to [`04-whitepaper-babel.md`](https://github.com/Roderick-Consulting-Inc/babel/blob/main/plans/04-whitepaper-babel.md). Style: Chicago author-date via pandoc + BibTeX. Voice: essayistic for curious minds. Citations are BibTeX keys (`[@key]`) and resolve through the shared [`references.bib`](https://github.com/Roderick-Consulting-Inc/babel/blob/main/references.bib) in the [Babel repository](https://github.com/Roderick-Consulting-Inc/babel).*
 
 ## 1. The design move
 
@@ -349,7 +349,7 @@ Thanks to the maintainers of esolangs.org [@esolangs_wiki] for cataloguing thirt
 ## Open items for the next pass
 
 - *Resolved 2026-05-09* — The language's name was settled to **Inflexión** through the naming exercise documented in §12. The historical-candidate list (*Castellano*, *Conjugar*, *Borges*, *Lengua*, *Pampa*, *Vos*, *Cortázar*, *Talante*, *Temple*, *Flexión*, *Concordancia*, *Conjugación*, *Morfema*) is preserved here for reference; future readers reviewing the rationale should consult §12 first.
-- *Resolved 2026-05-09* — Chain-of-thought citation in §6 is now `[@wei_chain_of_thought_2022]`, with the real BibTeX entry in `references.bib`. The Wei et al. (2022) author list and exact arXiv version still need a careful pass before publication (CONFIRM flag in the bib entry).
+- *Resolved 2026-05-09* — Chain-of-thought citation in §6 is now `[@wei_chain_of_thought_2022]`, with the real BibTeX entry in [`references.bib`](https://github.com/Roderick-Consulting-Inc/babel/blob/main/references.bib). The Wei et al. (2022) author list and exact arXiv version still need a careful pass before publication (CONFIRM flag in the bib entry).
 - *Resolved 2026-05-12* — The "to the best of the author's knowledge, novel" claim in §6 about prior empirical work on LLM performance versus programming-language surface syntax. A follow-up literature pass surfaced Sun et al. 2024 (SimPy / "AI-oriented grammar," ISSTA 2024) [@sun_simpy_2024], which directly varies the surface syntax of a programming language (Python → SimPy) and measures LLM behaviour empirically. §6 has been rewritten to cite Sun et al. as prior art and to narrow Inflexión's specific novelty claim to the *natural-language-morphological-density* dimension (which Sun et al. do not engage). A wider 2024–2026 lit search on LLM-oriented programming-language design is in progress as a separate workstream.
 - *Resolved 2026-05-09* — Self-citation to the Babel paper now uses `[@rodriguez_babel_2026]` throughout (§4.1 and §8), resolving against the BibTeX entry of the same key. The entry's exact form will be finalised once the series ships.
 - *Resolved 2026-05-11* — Example 4 in §5 now exercises the diminutive scaling mapping (`la sumita`).
