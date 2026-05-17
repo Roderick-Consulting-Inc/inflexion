@@ -93,8 +93,10 @@ Phase 6 additions (diminutive scaling + aspect-marked lazy):
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from .ast import (
     AspectMarkedOperation,
@@ -1028,13 +1030,24 @@ def _execute_clitic_imperative(
 
 
 def _execute_statement(
-    stmt: Statement, env: Environment, out: io.StringIO
+    stmt: Statement,
+    env: Environment,
+    out: io.StringIO,
+    trace_hook: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     """Execute a single statement against `env`, writing any output to `out`.
 
     Used both for top-level statements and for the actions of fired
     deferred bindings.
+
+    The optional ``trace_hook`` is invoked once before each statement (and
+    each nested statement reached recursively) with a snapshot describing
+    the statement about to execute, the current environment bindings, and
+    the cumulative output length. The hook may raise to halt execution
+    early (the playground uses this to enforce a step cap).
     """
+    if trace_hook is not None:
+        trace_hook(_witness_snapshot(stmt, env, out))
     if isinstance(stmt, BindingSer):
         env.bind_ser(stmt.name, _eval_expr(stmt.value, env))
     elif isinstance(stmt, BindingSerPlural):
@@ -1060,18 +1073,18 @@ def _execute_statement(
     elif isinstance(stmt, MutationCommand):
         fired = env.mutate(stmt.name, _eval_expr(stmt.value, env))
         for action in fired:
-            _execute_statement(action, env, out)
+            _execute_statement(action, env, out, trace_hook)
     elif isinstance(stmt, MutationSequence):
         # Phase 7a: sequential semantics — each step sees prior mutations.
         # Phase 7c: steps may be MutationCommand OR ListIndexSet (or any
         # Statement), so dispatch through _execute_statement rather than
         # calling env.mutate directly.
         for sub in stmt.mutations:
-            _execute_statement(sub, env, out)
+            _execute_statement(sub, env, out, trace_hook)
     elif isinstance(stmt, BodySequence):
         # Phase 7a: compound body (Si chain + trailing mutations).
         for sub in stmt.statements:
-            _execute_statement(sub, env, out)
+            _execute_statement(sub, env, out, trace_hook)
     elif isinstance(stmt, DecirCommand):
         # Phase 6: route through `_eval_expr(Identifier)` so the
         # diminutive / augmentative lookup fallback fires for forms
@@ -1124,11 +1137,11 @@ def _execute_statement(
         executed = False
         for cond, body in stmt.arms:
             if _eval_comparison_condition(cond, env):
-                _execute_statement(body, env, out)
+                _execute_statement(body, env, out, trace_hook)
                 executed = True
                 break
         if not executed and stmt.else_body is not None:
-            _execute_statement(stmt.else_body, env, out)
+            _execute_statement(stmt.else_body, env, out, trace_hook)
     elif isinstance(stmt, ListIndexSet):
         # Phase 7c: 1-indexed set on an estar-bound list (mutates in place).
         idx = _eval_expr(stmt.index, env)
@@ -1182,15 +1195,69 @@ def _execute_statement(
                     f"aiming for unbounded iteration; check the loop's "
                     f"termination condition."
                 )
-            _execute_statement(stmt.body, env, out)
+            _execute_statement(stmt.body, env, out, trace_hook)
             iterations += 1
     else:  # pragma: no cover - exhaustive
         raise InflexionRuntimeError(f"Unsupported statement: {stmt!r}")
 
 
-def run(program: Program, env: Environment) -> str:
-    """Execute a parsed Program. Returns captured stdout."""
+def _summarise_value(value: object, limit: int = 80) -> str:
+    """Short, single-line repr for a binding value (Witness Mode display)."""
+    s = repr(value)
+    if len(s) > limit:
+        return s[: limit - 1] + "…"
+    return s
+
+
+def _witness_snapshot(stmt: Statement, env: Environment, out: io.StringIO) -> dict[str, Any]:
+    """Build the per-statement snapshot consumed by a witness trace_hook.
+
+    The shape is Inflexión-specific (statement-tree eval, not stepwise
+    machine ops) and so does not match the BF / stack / OISC / fungeoid
+    snapshots produced by the babel interpreters.
+    """
+    # Walk up to the root scope to gather all visible bindings, because
+    # function calls push child scopes for parameters.
+    bindings: list[dict[str, str]] = []
+    seen: set[str] = set()
+    scope: Environment | None = env
+    while scope is not None:
+        for name in scope.binding_order:
+            if name in seen:
+                continue
+            seen.add(name)
+            cell = scope.cells[name]
+            bindings.append(
+                {
+                    "name": name,
+                    "kind": "ser" if cell.kind is BindingKind.SER else "estar",
+                    "value": _summarise_value(cell.value),
+                }
+            )
+        scope = scope.parent
+    return {
+        "kind": type(stmt).__name__,
+        "repr": _summarise_value(stmt, limit=160),
+        "bindings": bindings,
+        "output_len": out.tell(),
+    }
+
+
+def run(
+    program: Program,
+    env: Environment,
+    *,
+    trace_hook: Callable[[dict[str, Any]], None] | None = None,
+) -> str:
+    """Execute a parsed Program. Returns captured stdout.
+
+    The optional keyword-only ``trace_hook`` is called once before each
+    statement (including statements reached recursively through
+    BodySequence / IfStatement / WhileLoop bodies and fired observer
+    actions) with a snapshot dict. Defaults to ``None`` so existing
+    callers see no behavioural change and pay no overhead.
+    """
     out = io.StringIO()
     for stmt in program.statements:
-        _execute_statement(stmt, env, out)
+        _execute_statement(stmt, env, out, trace_hook)
     return out.getvalue()
