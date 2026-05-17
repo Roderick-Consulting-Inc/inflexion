@@ -4,7 +4,7 @@ Twenty-two `.infl` programs covering the full grammatical-semantic mapping curri
 
 | File | Output | Mappings demonstrated | Notes |
 |------|--------|----------------------|-------|
-| `hello-mundo.infl` | `Hola, mundo` | ser/estar (§3.1), imperative mood (§3.2), singular number (§3.6) | Minimal: ser-binding + single-clitic vos imperative |
+| `hello-world.infl` | `Hola, mundo` | ser/estar (§3.1), imperative mood (§3.2), singular number (§3.6) | Minimal: ser-binding + single-clitic vos imperative. Filename uses the CS term of art; the program's output (`Hola, mundo`) is Spanish because Inflexión is Spanish-syntax. |
 | `contador.infl` | `1` | estar mutable (§3.1), imperative mutation, indicative mood (§3.2) | estar bind + hacé mutation |
 | `contador-listo.infl` | `listo` | subjunctive deferred binding (§3.2), estar (§3.1) | Cuando-triggered observer |
 | `contador-cuenta.infl` | `0` | Mientras loop (§3.2), negated condition, estar (§3.1) | Simple countdown loop |
@@ -21,7 +21,7 @@ Twenty-two `.infl` programs covering the full grammatical-semantic mapping curri
 | `gcd.infl` | `6` | conditional dispatch + variable-to-variable comparison, Mientras + Si compound body | Subtractive Euclidean gcd(48, 18); we use the older subtractive form because the canonical `a − ⌊a/b⌋·b` requires modulo |
 | `palindromo.infl` | `1` / `0` / `1` | string char access + recursion, if-expression chains, function args with strings | Two-pointer recursive descent; tests *neuquen* (true), *hola* (false), *abcba* (true) |
 | `pi.infl` | `3.14149...` | `entre` (division), float arithmetic, signed accumulator, long iterative summation | Leibniz series, 10,000 terms ≈ π to 4 decimals |
-| `seleccion-sort.infl` | `[1, 2, …, 9]` | recursive `indice_min` helper + 4-clause swap inside Mientras body via y-que | Selection sort over a 9-element list; demonstrates nested recursion + indexed mutation |
+| `selection-sort.infl` | `[1, 2, …, 9]` | recursive `indice_min` helper + 4-clause swap inside Mientras body via y-que | Selection sort over a 9-element list; demonstrates nested recursion + indexed mutation. Filename uses the algorithms term of art (not *selección*) — same logic as `cat.infl` and `truth-machine.infl`. |
 | `quicksort.infl` | `[1, 2, …, 9]` | recursive 3-way partition, `unir` (concat), dynamic list literals `[el idx-ésimo de la xs]`, negated comparison (`no es menor que`) | Functional quicksort in three lines; pure-recursive, no mutation; correctly handles duplicates |
 | `calculadora.infl` | `14` | char-by-char string scan, stack via estar-bound list + top pointer, multi-mutation Si arms (one mutation chain per operator) | Postfix (RPN) calculator: `"5 1 2 + 4 * + 3 -"` → 14. Single-digit operands, ops `+`, `-`, `*`, `/`. |
 | `cat.infl` | echoes stdin | `Escuchá` + `Decí` | Cat program — reads a line, writes it back. The shortest non-trivial program using stdin. The filename uses the Unix term of art (short for *catenate*), not the Spanish *gato* (the animal) — same sound, different etymology. |
@@ -37,7 +37,7 @@ Or from Python:
 
 ```python
 import inflexion
-print(inflexion.run_file("examples/hello-mundo.infl"))
+print(inflexion.run_file("examples/hello-world.infl"))
 ```
 
 ## Grammatical-semantic mapping legend

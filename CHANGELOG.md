@@ -2,6 +2,23 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.15] — 2026-05-17
+
+### Changed — `hello-mundo.infl` → `hello-world.infl`, `seleccion-sort.infl` → `selection-sort.infl` (etymological honesty, completed)
+
+Renamed the two remaining half-translated example files flagged in v0.0.14:
+
+- `examples/hello-mundo.infl` → `examples/hello-world.infl` (and `tests/test_hello_mundo.py` → `tests/test_hello_world.py`)
+- `examples/seleccion-sort.infl` → `examples/selection-sort.infl` (and `tests/test_seleccion_sort.py` → `tests/test_selection_sort.py`)
+
+Program contents and test logic unchanged; only filenames and test-function names. The program output for `hello-world.infl` is still `Hola, mundo` (the program's content is Inflexión / Spanish — only the *filename* uses the CS term of art).
+
+Same logic as the v0.0.13 (`cat`) and v0.0.14 (`truth-machine`) renames. "Hello, World!" and "selection sort" are CS and algorithms terms of art; the previous half-translated names (Spanish noun + English term, or English noun + Spanish term) were inconsistent on the principle and read as accidental rather than chosen. Treating both as terms of art and leaving them untranslated finishes the cleanup started in v0.0.13.
+
+The pure-Spanish example names that *are* ordinary Spanish words used as descriptions (`contador`, `precios`, `calculadora`, `palindromo`, `transferir`, `sumita`, etc.) are not affected — those are not folk translations of terms of art, they're just Spanish names for what the program does.
+
+Coordination note: babel-playground tests and frontend that referenced `hello-mundo` by name will need a parallel update; the local Inflexión clones on dev01 + svc01 (used by `babel.roderickc.com` to serve the examples list) will need `git pull` to pick up the new filenames.
+
 ## [0.0.14] — 2026-05-17
 
 ### Changed — `examples/verdad.infl` → `examples/truth-machine.infl` (etymological honesty, continued)
@@ -12,7 +29,7 @@ Same logic as the `gato` → `cat` rename in v0.0.13. "Truth machine" is an esol
 
 The historical `[0.0.12]` entry below still references `verdad.infl` because that is what shipped under that version; the change is forward-only.
 
-Two parallel-case candidates remain that we have not yet renamed: `hello-mundo.infl` (half-translated; "Hello, World!" is a CS term of art) and `seleccion-sort.infl` (half-translated; "selection sort" is an algorithms term of art). Both are deliberate non-decisions pending sign-off.
+The next pass (v0.0.15) finishes the etymological-honesty discipline on the two remaining half-translated names (`hello-mundo`, `seleccion-sort`).
 
 ## [0.0.13] — 2026-05-17
 

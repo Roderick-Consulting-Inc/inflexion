@@ -34,7 +34,7 @@ The Python interpreter is being built in phases that track the six grammatical m
 
 | Phase | Mapping covered | Example files | Status |
 |---|---|---|---|
-| 1 | *ser* binding + 1-clitic vos imperative (§3.1, §3.6) | `hello-mundo.infl` | shipped |
+| 1 | *ser* binding + 1-clitic vos imperative (§3.1, §3.6) | `hello-world.infl` | shipped |
 | 2 | *estar* binding + imperative mutation (§3.1, §3.6) | `contador.infl` | shipped |
 | 3a | *Cuando* subjunctive deferred binding (§3.2) | `contador-listo.infl` | shipped |
 | 3b | *Mientras* iteration + arithmetic (§3.2, §3.7) | `contador-cuenta.infl` | shipped |

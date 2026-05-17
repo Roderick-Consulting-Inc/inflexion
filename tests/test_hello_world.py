@@ -9,21 +9,21 @@ from pathlib import Path
 import inflexion
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EXAMPLE = REPO_ROOT / "examples" / "hello-mundo.infl"
+EXAMPLE = REPO_ROOT / "examples" / "hello-world.infl"
 
 
-def test_hello_mundo_run_file() -> None:
+def test_hello_world_run_file() -> None:
     """Programmatic API: running the example file prints `Hola, mundo\\n`."""
     assert inflexion.run_file(EXAMPLE) == "Hola, mundo\n"
 
 
-def test_hello_mundo_run_source() -> None:
+def test_hello_world_run_source() -> None:
     """Source-string API: same result as the file."""
     source = 'El saludo es "Hola, mundo".\nDecilo.\n'
     assert inflexion.run_source(source) == "Hola, mundo\n"
 
 
-def test_hello_mundo_cli() -> None:
+def test_hello_world_cli() -> None:
     """CLI smoke: `python -m inflexion run <file>` prints the expected text."""
     result = subprocess.run(
         [sys.executable, "-m", "inflexion", "run", str(EXAMPLE)],

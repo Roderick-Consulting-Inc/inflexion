@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""End-to-end test: examples/seleccion-sort.infl.
+"""End-to-end test: examples/selection-sort.infl.
 
 Selection sort: outer mientras loop over positions; recursive helper
 `indice_min` finds the min-index in the unsorted tail; swap via four
@@ -12,16 +12,16 @@ from pathlib import Path
 import inflexion
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EXAMPLE = REPO_ROOT / "examples" / "seleccion-sort.infl"
+EXAMPLE = REPO_ROOT / "examples" / "selection-sort.infl"
 
 
-def test_seleccion_sort_canonical() -> None:
+def test_selection_sort_canonical() -> None:
     """[5, 2, 8, 1, 9, 3, 7, 4, 6] → [1, 2, 3, 4, 5, 6, 7, 8, 9]."""
     output = inflexion.run_file(EXAMPLE)
     assert output.strip() == "[1, 2, 3, 4, 5, 6, 7, 8, 9]"
 
 
-def test_seleccion_sort_already_sorted() -> None:
+def test_selection_sort_already_sorted() -> None:
     """Already-sorted input remains sorted (idempotent)."""
     src = (
         "La lista está en [1, 2, 3, 4, 5].\n"
@@ -45,7 +45,7 @@ def test_seleccion_sort_already_sorted() -> None:
     assert inflexion.run_source(src).strip() == "[1, 2, 3, 4, 5]"
 
 
-def test_seleccion_sort_reverse() -> None:
+def test_selection_sort_reverse() -> None:
     """[5, 4, 3, 2, 1] (worst case) → [1, 2, 3, 4, 5]."""
     src = (
         "La lista está en [5, 4, 3, 2, 1].\n"
