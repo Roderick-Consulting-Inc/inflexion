@@ -1256,8 +1256,30 @@ def run(
     BodySequence / IfStatement / WhileLoop bodies and fired observer
     actions) with a snapshot dict. Defaults to ``None`` so existing
     callers see no behavioural change and pay no overhead.
+
+    Each snapshot carries an additional ``top_stmt_idx`` field — the
+    zero-based index of the *top-level* program statement currently
+    being executed (or one of its nested descendants). This lets a
+    witness UI highlight the source-text sentence that produced this
+    snapshot. Added in v0.0.17.
     """
     out = io.StringIO()
-    for stmt in program.statements:
-        _execute_statement(stmt, env, out, trace_hook)
+    if trace_hook is None:
+        for stmt in program.statements:
+            _execute_statement(stmt, env, out, None)
+        return out.getvalue()
+
+    # Closure-wrap the user's hook so we can stamp top_stmt_idx onto
+    # every snapshot without threading it through the recursive
+    # _execute_statement signature.
+    top_idx_ref = [0]
+    user_hook = trace_hook
+
+    def stamped_hook(snap: dict[str, Any]) -> None:
+        snap["top_stmt_idx"] = top_idx_ref[0]
+        user_hook(snap)
+
+    for i, stmt in enumerate(program.statements):
+        top_idx_ref[0] = i
+        _execute_statement(stmt, env, out, stamped_hook)
     return out.getvalue()
