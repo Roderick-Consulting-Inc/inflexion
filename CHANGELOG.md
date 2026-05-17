@@ -2,6 +2,18 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.14] — 2026-05-17
+
+### Changed — `examples/verdad.infl` → `examples/truth-machine.infl` (etymological honesty, continued)
+
+Renamed `examples/verdad.infl` to `examples/truth-machine.infl` (and `tests/test_verdad.py` to `tests/test_truth_machine.py` with corresponding test-function renames). Program contents unchanged.
+
+Same logic as the `gato` → `cat` rename in v0.0.13. "Truth machine" is an esolang term of art (the classical infinite-loop-on-1, halt-on-0 program); the Spanish *verdad* (truth) was a folk-etymology translation that read like a real semantic mapping but was actually a homophone-ish coincidence. Treating "truth machine" as a term of art and leaving it untranslated is consistent with the v0.0.13 discipline.
+
+The historical `[0.0.12]` entry below still references `verdad.infl` because that is what shipped under that version; the change is forward-only.
+
+Two parallel-case candidates remain that we have not yet renamed: `hello-mundo.infl` (half-translated; "Hello, World!" is a CS term of art) and `seleccion-sort.infl` (half-translated; "selection sort" is an algorithms term of art). Both are deliberate non-decisions pending sign-off.
+
 ## [0.0.13] — 2026-05-17
 
 ### Changed — `examples/gato.infl` → `examples/cat.infl` (etymological honesty)

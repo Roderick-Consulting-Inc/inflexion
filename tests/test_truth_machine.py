@@ -1,5 +1,5 @@
 # Copyright 2026 Roderick Consulting Inc. SPDX-License-Identifier: Apache-2.0
-"""End-to-end test: examples/verdad.infl.
+"""End-to-end test: examples/truth-machine.infl.
 
 A truth machine — reads an integer from stdin; if 0, prints "0" and
 halts; otherwise prints "1" until the runtime's 100,000-iteration
@@ -18,16 +18,16 @@ import inflexion
 from inflexion.interpreter import InflexionRuntimeError
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EXAMPLE = REPO_ROOT / "examples" / "verdad.infl"
+EXAMPLE = REPO_ROOT / "examples" / "truth-machine.infl"
 SOURCE = EXAMPLE.read_text(encoding="utf-8")
 
 
-def test_verdad_zero_halts() -> None:
+def test_truth_machine_zero_halts() -> None:
     """Input '0' prints '0' and halts (no loop)."""
     assert inflexion.run_source(SOURCE, stdin="0") == "0\n"
 
 
-def test_verdad_nonzero_hits_safety_cap() -> None:
+def test_truth_machine_nonzero_hits_safety_cap() -> None:
     """Input '1' loops; the runtime's 100k-iteration cap fires.
 
     The classical truth machine loops forever; Inflexión's runtime
