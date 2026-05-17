@@ -1,0 +1,16 @@
+La función suma_vecinos, que toma una g, una a, una b, una c, una d, una e, una f, una h, una i, es el a-ésimo de la g más el b-ésimo de la g más el c-ésimo de la g más el d-ésimo de la g más el e-ésimo de la g más el f-ésimo de la g más el h-ésimo de la g más el i-ésimo de la g.
+
+La función regla_vida, que toma una vivo, una vecinos, es si la vecinos es 3, entonces 1; sino, si la vecinos es 2, entonces la vivo; sino, 0.
+
+La función actualizar_celda, que toma una g, una idx, una r, una c, una a, una b, una k, una d, una e, una f, una h, una i, es si la r es 1, entonces 0; sino, si la r es 5, entonces 0; sino, si la c es 1, entonces 0; sino, si la c es 5, entonces 0; sino, regla_vida (el idx-ésimo de la g) (suma_vecinos la g la a la b la k la d la e la f la h la i).
+
+La función actualizar, que toma una g, una idx, una r, una c, una acc, es si la idx es mayor que 25, entonces la acc; sino, si la c es 5, entonces actualizar la g (la idx más 1) (la r más 1) 1 (unir la acc y [actualizar_celda la g la idx la r la c (la idx menos 6) (la idx menos 5) (la idx menos 4) (la idx menos 1) (la idx más 1) (la idx más 4) (la idx más 5) (la idx más 6)]); sino, actualizar la g (la idx más 1) la r (la c más 1) (unir la acc y [actualizar_celda la g la idx la r la c (la idx menos 6) (la idx menos 5) (la idx menos 4) (la idx menos 1) (la idx más 1) (la idx más 4) (la idx más 5) (la idx más 6)]).
+
+La función paso, que toma una g, es actualizar la g 1 1 1 [].
+
+La grilla está en [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].
+Decí la grilla.
+Hacé que la grilla esté en paso la grilla.
+Decí la grilla.
+Hacé que la grilla esté en paso la grilla.
+Decí la grilla.

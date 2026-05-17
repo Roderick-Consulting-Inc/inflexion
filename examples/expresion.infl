@@ -1,0 +1,15 @@
+La función parse_factor, que toma una fuente, una pos, es unir [(el código de el carácter la pos de la fuente) menos 48] y [la pos más 1].
+
+La función parse_termino_resto, que toma una fuente, una n, una acc, una pos, es si la pos es mayor que la n, entonces unir [la acc] y [la pos]; sino, si el código de el carácter la pos de la fuente es 42, entonces parse_termino_resto la fuente la n (la acc por (el primero de (parse_factor la fuente (la pos más 1)))) (el segundo de (parse_factor la fuente (la pos más 1))); sino, unir [la acc] y [la pos].
+
+La función parse_termino, que toma una fuente, una n, una pos, es parse_termino_resto la fuente la n (el primero de (parse_factor la fuente la pos)) (el segundo de (parse_factor la fuente la pos)).
+
+La función parse_expr_resto, que toma una fuente, una n, una acc, una pos, es si la pos es mayor que la n, entonces la acc; sino, si el código de el carácter la pos de la fuente es 43, entonces parse_expr_resto la fuente la n (la acc más (el primero de (parse_termino la fuente la n (la pos más 1)))) (el segundo de (parse_termino la fuente la n (la pos más 1))); sino, la acc.
+
+La función parse_expr, que toma una fuente, es parse_expr_resto la fuente (el largo de la fuente) (el primero de (parse_termino la fuente (el largo de la fuente) 1)) (el segundo de (parse_termino la fuente (el largo de la fuente) 1)).
+
+La fuente es "1+2*3+4".
+Decí parse_expr la fuente.
+
+La otra es "9*8+7*6".
+Decí parse_expr la otra.

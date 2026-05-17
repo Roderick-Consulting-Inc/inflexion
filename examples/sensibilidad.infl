@@ -1,0 +1,6 @@
+Los precios son [80, 85, 90, 95, 100, 105, 110, 115, 120].
+El costo es 50.
+El volumen es 100.
+El costo_fijo es 2000.
+Las ganancias son (los precios menos el costo) por el volumen menos el costo_fijo.
+Decí las ganancias.

@@ -1,0 +1,17 @@
+La función linea, que toma una g, una a, una b, una c, es si el a-ésimo de la g es 0, entonces 0; sino, si el a-ésimo de la g no es el b-ésimo de la g, entonces 0; sino, si el b-ésimo de la g no es el c-ésimo de la g, entonces 0; sino, el a-ésimo de la g.
+
+La función primera_no_cero, que toma una a, una b, es si la a no es 0, entonces la a; sino, la b.
+
+La función ganador, que toma una g, es primera_no_cero ( linea la g 1 2 3 ) ( primera_no_cero ( linea la g 4 5 6 ) ( primera_no_cero ( linea la g 7 8 9 ) ( primera_no_cero ( linea la g 1 4 7 ) ( primera_no_cero ( linea la g 2 5 8 ) ( primera_no_cero ( linea la g 3 6 9 ) ( primera_no_cero ( linea la g 1 5 9 ) ( linea la g 3 5 7 ) ) ) ) ) ) ).
+
+La tablero_x_gana_fila es [1, 1, 1, 2, 2, 0, 0, 0, 0].
+Decí ganador la tablero_x_gana_fila.
+
+La tablero_o_gana_diagonal es [2, 1, 1, 1, 2, 0, 0, 0, 2].
+Decí ganador la tablero_o_gana_diagonal.
+
+La tablero_x_gana_columna es [1, 2, 0, 1, 2, 0, 1, 0, 0].
+Decí ganador la tablero_x_gana_columna.
+
+La tablero_empate es [1, 2, 1, 1, 2, 1, 2, 1, 2].
+Decí ganador la tablero_empate.

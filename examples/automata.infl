@@ -1,0 +1,11 @@
+La función proxima_celda, que toma una p, es si la p es 0, entonces 0; sino, si la p es 1, entonces 1; sino, si la p es 2, entonces 1; sino, si la p es 3, entonces 1; sino, si la p es 4, entonces 0; sino, si la p es 5, entonces 1; sino, si la p es 6, entonces 1; sino, 0.
+
+La función actualizar, que toma una fila, una izq, una j, una j_next, una n, una acc, es si la j es mayor que la n, entonces la acc; sino, si la j es la n, entonces actualizar la fila (el j-ésimo de la fila) (la j más 1) (la j_next más 1) la n (unir la acc y [proxima_celda (4 por la izq más 2 por (el j-ésimo de la fila))]); sino, actualizar la fila (el j-ésimo de la fila) (la j más 1) (la j_next más 1) la n (unir la acc y [proxima_celda (4 por la izq más 2 por (el j-ésimo de la fila) más (el j_next-ésimo de la fila))]).
+
+La función paso, que toma una fila, es actualizar la fila 0 1 2 (el largo de la fila) [].
+
+La fila está en [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1].
+Decí la fila.
+La g está en 1.
+Mientras la g no esté en 8, hacé que la fila esté en paso la fila y que la g esté en la g más 1.
+Decí la fila.
