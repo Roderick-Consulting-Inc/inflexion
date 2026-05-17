@@ -1209,15 +1209,13 @@ def _summarise_value(value: object, limit: int = 80) -> str:
     return s
 
 
-def _witness_snapshot(stmt: Statement, env: Environment, out: io.StringIO) -> dict[str, Any]:
-    """Build the per-statement snapshot consumed by a witness trace_hook.
+def _collect_bindings(env: Environment) -> list[dict[str, str]]:
+    """Walk the scope chain root-ward and return every visible binding.
 
-    The shape is Inflexión-specific (statement-tree eval, not stepwise
-    machine ops) and so does not match the BF / stack / OISC / fungeoid
-    snapshots produced by the babel interpreters.
+    Function calls push child scopes for parameters, so we have to walk
+    to the root to surface all visible names. Shared helper used by both
+    the per-statement snapshot and the final post-program snapshot.
     """
-    # Walk up to the root scope to gather all visible bindings, because
-    # function calls push child scopes for parameters.
     bindings: list[dict[str, str]] = []
     seen: set[str] = set()
     scope: Environment | None = env
@@ -1235,10 +1233,37 @@ def _witness_snapshot(stmt: Statement, env: Environment, out: io.StringIO) -> di
                 }
             )
         scope = scope.parent
+    return bindings
+
+
+def _witness_snapshot(stmt: Statement, env: Environment, out: io.StringIO) -> dict[str, Any]:
+    """Build the per-statement snapshot consumed by a witness trace_hook.
+
+    The shape is Inflexión-specific (statement-tree eval, not stepwise
+    machine ops) and so does not match the BF / stack / OISC / fungeoid
+    snapshots produced by the babel interpreters.
+    """
     return {
         "kind": type(stmt).__name__,
         "repr": _summarise_value(stmt, limit=160),
-        "bindings": bindings,
+        "bindings": _collect_bindings(env),
+        "output_len": out.tell(),
+    }
+
+
+def _witness_final_snapshot(env: Environment, out: io.StringIO) -> dict[str, Any]:
+    """The post-program snapshot: state AFTER the last statement ran.
+
+    Since per-statement snapshots fire BEFORE their statement, the final
+    statement's effects would otherwise never appear in the trace —
+    e.g. a program ending in ``Hacé que la x esté en 99.`` would never
+    show ``x == 99`` to the witness UI. This synthetic snapshot fixes
+    that. The ``kind`` is the sentinel ``"ProgramEnd"``.
+    """
+    return {
+        "kind": "ProgramEnd",
+        "repr": "",
+        "bindings": _collect_bindings(env),
         "output_len": out.tell(),
     }
 
@@ -1282,4 +1307,13 @@ def run(
     for i, stmt in enumerate(program.statements):
         top_idx_ref[0] = i
         _execute_statement(stmt, env, out, stamped_hook)
+
+    # v0.0.18: fire one final synthetic snapshot AFTER the last statement
+    # runs so the witness UI sees the post-program state (otherwise the
+    # last statement's effects on bindings are invisible — every per-stmt
+    # snapshot fires BEFORE its statement). top_stmt_idx is past-the-end
+    # so source-pane highlighters drop the cursor cleanly.
+    final = _witness_final_snapshot(env, out)
+    final["top_stmt_idx"] = len(program.statements)
+    user_hook(final)
     return out.getvalue()
