@@ -2,6 +2,16 @@
 
 All notable changes to the Inflexión runtime are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The runtime is pre-1.0; the API and surface syntax may change between minor versions.
 
+## [0.0.13] — 2026-05-17
+
+### Changed — `examples/gato.infl` → `examples/cat.infl` (etymological honesty)
+
+Renamed `examples/gato.infl` to `examples/cat.infl` (and `tests/test_gato.py` to `tests/test_cat.py` with corresponding test-function renames). The Inflexión program contents (the two-line `Escuchá una línea en la entrada.` / `Decí la entrada.`) are unchanged.
+
+Rationale: Unix `cat` is short for *catenate*, not the animal. The Spanish word *gato* (the animal) was a folk-etymology pun riding on the homophony with the Unix term. The pun is fine in conversation but inconsistent with the Inflexión project's broader discipline of linguistic precision (the white paper's careful Rioplatense dialect choice, deliberate non-engagement of grammatical gender, etc.). Treating `cat` as a Unix term of art and leaving it untranslated matches how Spanish-speaking Unix communities actually talk about it.
+
+The historical `[0.0.12]` entry below still references `gato.infl` because that is what shipped under that version; the change is forward-only.
+
 ## [0.0.12] — 2026-05-15
 
 ### Added — CLI stdin forwarding + two classic esolang examples

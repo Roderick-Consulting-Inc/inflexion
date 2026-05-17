@@ -24,7 +24,7 @@ Twenty-two `.infl` programs covering the full grammatical-semantic mapping curri
 | `seleccion-sort.infl` | `[1, 2, …, 9]` | recursive `indice_min` helper + 4-clause swap inside Mientras body via y-que | Selection sort over a 9-element list; demonstrates nested recursion + indexed mutation |
 | `quicksort.infl` | `[1, 2, …, 9]` | recursive 3-way partition, `unir` (concat), dynamic list literals `[el idx-ésimo de la xs]`, negated comparison (`no es menor que`) | Functional quicksort in three lines; pure-recursive, no mutation; correctly handles duplicates |
 | `calculadora.infl` | `14` | char-by-char string scan, stack via estar-bound list + top pointer, multi-mutation Si arms (one mutation chain per operator) | Postfix (RPN) calculator: `"5 1 2 + 4 * + 3 -"` → 14. Single-digit operands, ops `+`, `-`, `*`, `/`. |
-| `gato.infl` | echoes stdin | `Escuchá` + `Decí` | Cat program — reads a line, writes it back. The shortest non-trivial program using stdin. |
+| `cat.infl` | echoes stdin | `Escuchá` + `Decí` | Cat program — reads a line, writes it back. The shortest non-trivial program using stdin. The filename uses the Unix term of art (short for *catenate*), not the Spanish *gato* (the animal) — same sound, different etymology. |
 | `verdad.infl` | `0` or many `1`s | `Si` + `Mientras` + stdin | Truth machine — input 0 halts after `0`; non-zero loops printing `1` until the 100k-iteration `Mientras` safety cap fires. |
 
 ## Running an example
