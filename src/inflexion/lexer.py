@@ -54,7 +54,13 @@ _NUMERIC_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 
 @dataclass(frozen=True)
 class Token:
-    """A lexer token. `text` is the surface form (or string placeholder)."""
+    """A lexer token. `text` is the surface form (or string placeholder).
+
+    ``line`` is the 1-indexed line number in the *original* source where this
+    token appears. Added in 0.0.19 to support the Babel Playground's Witness
+    Mode source-pane highlighter (eliminates the v0.13.4 float-literal /
+    sentence-splitter heuristic in the frontend).
+    """
 
     text: str
     lower: str
@@ -62,6 +68,7 @@ class Token:
     lemma: str
     morph: str
     is_punct: bool
+    line: int = 1
 
     @property
     def is_string_placeholder(self) -> bool:
@@ -146,6 +153,7 @@ def _split_trailing_period(tokens: list[Token]) -> list[Token]:
                     lemma=tok.lemma,
                     morph=tok.morph,
                     is_punct=False,
+                    line=tok.line,
                 )
             )
             out.append(
@@ -156,6 +164,7 @@ def _split_trailing_period(tokens: list[Token]) -> list[Token]:
                     lemma=".",
                     morph="PunctType=Peri",
                     is_punct=True,
+                    line=tok.line,
                 )
             )
             continue
@@ -164,13 +173,22 @@ def _split_trailing_period(tokens: list[Token]) -> list[Token]:
 
 
 def lex(source: str) -> tuple[list[Token], list[str]]:
-    """Tokenise Inflexión source. Returns (tokens, string_literal_table)."""
+    """Tokenise Inflexión source. Returns (tokens, string_literal_table).
+
+    Each Token carries a ``line`` field (1-indexed) for Witness Mode source
+    highlighting. Computed by counting newlines in the placeholdered source
+    up to spaCy's ``tok.idx``. This works exactly when string literals don't
+    span multiple lines (the convention in every bundled example); a future
+    multi-line string would mis-attribute the line number by however many
+    newlines the string spans. Acceptable trade-off for v0.0.19.
+    """
     placeholdered, strings = _extract_strings(source)
     doc = _nlp()(placeholdered)
     tokens: list[Token] = []
     for tok in doc:
         if tok.is_space:
             continue
+        line = placeholdered.count("\n", 0, tok.idx) + 1
         tokens.append(
             Token(
                 text=tok.text,
@@ -179,6 +197,7 @@ def lex(source: str) -> tuple[list[Token], list[str]]:
                 lemma=tok.lemma_.lower(),
                 morph=str(tok.morph),
                 is_punct=tok.is_punct,
+                line=line,
             )
         )
     return _split_trailing_period(tokens), strings

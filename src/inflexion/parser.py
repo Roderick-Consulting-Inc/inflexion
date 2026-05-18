@@ -2211,8 +2211,12 @@ def _parse_escucha(sentence: list[Token], strings: list[str]) -> "Statement":
 def parse(tokens: list[Token], strings: list[str]) -> Program:
     """Parse a token stream + string table into a Program."""
     statements: list[Statement] = []
+    stmt_lines: list[int] = []
     for sentence in _split_sentences(tokens):
         first = sentence[0]
+        # Capture the 1-indexed source line of the first token of this
+        # sentence for Witness Mode highlighting (0.0.19).
+        stmt_lines.append(getattr(first, "line", 1))
         if first.lower == "si":
             # Phase 7a: conditional dispatch `Si … , … ; sino, …`
             statements.append(_parse_si(sentence, strings))
@@ -2245,4 +2249,4 @@ def parse(tokens: list[Token], strings: list[str]) -> Program:
                 statements.append(_parse_mutation(sentence, strings))
         else:
             statements.append(_parse_decir(sentence, strings))
-    return Program(statements=tuple(statements))
+    return Program(statements=tuple(statements), stmt_lines=tuple(stmt_lines))

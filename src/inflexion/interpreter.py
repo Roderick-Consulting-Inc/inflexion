@@ -1294,14 +1294,20 @@ def run(
             _execute_statement(stmt, env, out, None)
         return out.getvalue()
 
-    # Closure-wrap the user's hook so we can stamp top_stmt_idx onto
-    # every snapshot without threading it through the recursive
-    # _execute_statement signature.
+    # Closure-wrap the user's hook so we can stamp top_stmt_idx + source
+    # line info onto every snapshot without threading them through the
+    # recursive _execute_statement signature.
     top_idx_ref = [0]
     user_hook = trace_hook
+    stmt_lines = getattr(program, "stmt_lines", ()) or ()
 
     def stamped_hook(snap: dict[str, Any]) -> None:
-        snap["top_stmt_idx"] = top_idx_ref[0]
+        idx = top_idx_ref[0]
+        snap["top_stmt_idx"] = idx
+        # 0.0.19: per-snapshot source line (1-indexed) when the parser
+        # populated stmt_lines. Witness Mode source pane uses this.
+        if 0 <= idx < len(stmt_lines):
+            snap["source_line_num"] = stmt_lines[idx]
         user_hook(snap)
 
     for i, stmt in enumerate(program.statements):
@@ -1312,7 +1318,8 @@ def run(
     # runs so the witness UI sees the post-program state (otherwise the
     # last statement's effects on bindings are invisible — every per-stmt
     # snapshot fires BEFORE its statement). top_stmt_idx is past-the-end
-    # so source-pane highlighters drop the cursor cleanly.
+    # so source-pane highlighters drop the cursor cleanly. source_line_num
+    # is intentionally omitted on this snapshot.
     final = _witness_final_snapshot(env, out)
     final["top_stmt_idx"] = len(program.statements)
     user_hook(final)

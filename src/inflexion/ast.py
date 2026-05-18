@@ -740,6 +740,14 @@ Statement = Union[
 
 @dataclass(frozen=True)
 class Program:
-    """An Inflexión program — an ordered list of statements."""
+    """An Inflexión program — an ordered list of statements.
+
+    ``stmt_lines`` (added 0.0.19) is a parallel list of 1-indexed source-line
+    numbers for each top-level statement, populated by the parser when token
+    line info is available. Used by Witness Mode to highlight the source
+    line a snapshot's statement came from. Empty tuple if line info is
+    unavailable.
+    """
 
     statements: tuple[Statement, ...]
+    stmt_lines: tuple[int, ...] = ()
