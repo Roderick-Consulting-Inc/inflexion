@@ -1,12 +1,12 @@
 ---
 title: "Inflexión: Operational Semantics"
-subtitle: "Second Installment — Formal Description of the Runtime"
+subtitle: "Second Installment. Formal Description of the Runtime"
 author:
   - Ramon Rodriguez
 affiliation: RCI
 date: 2026-05-15
 abstract: |
-  Inflexión [@rodriguez_inflexion_2026] is a Spanish-grammar esoteric programming language whose surface syntax flows from the morphological features of Rioplatense Argentine Spanish — the *ser*/*estar* split, mood, aspect, clitic ordering, diminutive and augmentative morphology, and number agreement — used as semantic primitives. The first installment described the design move, the mappings, and a hypothesis about LLM prompting density. The runtime — a Python interpreter built phase-by-phase against the design paper — shipped under build-first sequencing: code first, formal write-up afterwards. This second installment is that write-up. It describes the lexer (a spaCy + custom-rule layer for Rioplatense morphology), the grammar (a partial BNF over the surface language), the abstract machine (an environment of named cells with two binding kinds), and the evaluation rules for each of the six grammatical-semantic mappings plus the control-flow, data, and I/O extensions added between the design paper and the present version (v0.0.11). The Turing-completeness argument from the design paper's §4.3 is realised as a working Brainfuck interpreter written in Inflexión, and is briefly formalised here. The paper is intended to be readable both as a specification of what the runtime does and as an independent contribution to the question of how a programming language whose surface is natural-language prose can be given precise execution semantics.
+  Inflexión [@rodriguez_inflexion_2026] is an esoteric programming language built on Spanish grammar, whose surface syntax flows from the morphological features of Rioplatense Argentine Spanish, the *ser*/*estar* split, mood, aspect, clitic ordering, diminutive and augmentative morphology, and number agreement, used as semantic primitives. The first installment described the design move, the mappings, and a hypothesis about LLM prompting density. The runtime, a Python interpreter built phase by phase against the design paper, shipped under build-first sequencing: code first, formal write-up afterwards. This second installment is that write-up. It describes the lexer (a spaCy layer plus custom rules for Rioplatense morphology), the grammar (a partial BNF over the surface language), the abstract machine (an environment of named cells with two binding kinds), and the evaluation rules for each of the six mappings from grammar to semantics, plus the control-flow, data, and I/O extensions added between the design paper and the present version (v0.0.11). The Turing-completeness argument from the design paper's §4.3 is realised as a working Brainfuck interpreter written in Inflexión, and is briefly formalised here. The paper is intended to be readable both as a specification of what the runtime does and as an independent contribution to the question of how a programming language whose surface is natural-language prose can be given precise execution semantics.
 bibliography: ../../Babel/references.bib
 csl: ../../Babel/csl/chicago-author-date.csl
 link-citations: true
@@ -24,21 +24,21 @@ The runtime described here is version `0.0.11`. The implementation has been buil
 
 ### 1.1 What "operational semantics" means here
 
-We follow [@plotkin_structural_2004] in taking operational semantics to be a precise description of execution as a sequence of state transitions on an abstract machine. The state is an *environment* of named cells; the abstract machine reads a parsed program (an abstract syntax tree, AST) and produces, by structural recursion over the tree, a new state plus an output stream. The transition rules are presented in big-step form (relation `(stmt, env) ⇓ (env', output)`) rather than small-step, because the runtime is implemented in Python and a big-step model maps more naturally to a recursive-descent interpreter. Small-step semantics could be derived from these by trace-decomposing each rule, but we do not present them.
+We follow [@plotkin_structural_2004] in taking operational semantics to be a precise description of execution as a sequence of state transitions on an abstract machine. The state is an *environment* of named cells. The abstract machine reads a parsed program, an abstract syntax tree or AST, and produces, by structural recursion over the tree, a new state plus an output stream. The transition rules are presented in big-step form, as a relation `(stmt, env) ⇓ (env', output)`, rather than small-step, because the runtime is implemented in Python and a big-step model maps more naturally to a recursive-descent interpreter. Small-step semantics could be derived from these by trace-decomposing each rule, but we do not present them.
 
-The presentation style is somewhere between Plotkin-style structural rules and the prose-paragraph form of more recent practical-language specifications (e.g., the Lua reference manual [@ierusalimschy_lua_2024]). We use natural-deduction-style rules where the structure is clean (binding, evaluation, control flow); we use prose where the rule would require notation that is more verbose than the explanation it replaces (the diminutive lookup fallback, the clitic-ordering dispatch).
+The presentation style sits somewhere between Plotkin-style structural rules and the prose-paragraph form of more recent specifications for practical languages, for instance the Lua reference manual [@ierusalimschy_lua_2024]. We use rules in natural-deduction style where the structure is clean, as for binding, evaluation, and control flow. We use prose where the rule would require notation more verbose than the explanation it replaces, as for the diminutive lookup fallback and the clitic-ordering dispatch.
 
-We do not give a denotational semantics. The runtime is not a partial function in the classical sense — *Cuando* deferred bindings create observers that fire on future state, and the imperfective aspect of an operation creates a stream that produces values on demand — both of which are awkward to denote without committing to a particular underlying domain theory. The operational form sidesteps this.
+We do not give a denotational semantics. The runtime is not a partial function in the classical sense. *Cuando* deferred bindings create observers that fire on future state, and the imperfective aspect of an operation creates a stream that produces values on demand. Both are awkward to denote without committing to a particular underlying domain theory. The operational form sidesteps this.
 
 ### 1.2 The shape of the rest of the paper
 
-§2 describes the lexer — how Inflexión source text becomes a stream of tokens. This is where the dependence on Spanish morphology is most concentrated: a Rioplatense imperative verb (*decí*, *hacé*) with a stack of enclitic clitics (*decímelo*, *transferíselo*) is one token in the surface, but resolves to a (verb-lemma, clitic-stack) pair after lexing.
+§2 describes the lexer, the stage that turns Inflexión source text into a stream of tokens. This is where the dependence on Spanish morphology is most concentrated: a Rioplatense imperative verb such as *decí* or *hacé*, with a stack of enclitic clitics such as *decímelo* or *transferíselo*, is one token in the surface, but resolves to a pair of verb lemma plus clitic stack after lexing.
 
-§3 describes the grammar — the surface forms the parser recognises and the AST nodes they produce.
+§3 describes the grammar, the surface forms the parser recognises and the AST nodes they produce.
 
-§4 describes the abstract machine — the environment model, the binding kinds, the cell types.
+§4 describes the abstract machine, the environment model, the binding kinds, the cell types.
 
-§5 is the bulk of the paper: the evaluation rules. There is one subsection per grammatical-semantic mapping from the design paper's §3, plus one subsection each for the extensions added during runtime development. The rules in this section, taken together, are the operational semantics.
+§5 is the bulk of the paper: the evaluation rules. There is one subsection per mapping from grammar to semantics in the design paper's §3, plus one subsection each for the extensions added during runtime development. The rules in this section, taken together, are the operational semantics.
 
 §6 sketches the Turing-completeness argument by reference to the Brainfuck interpreter that lives in the example corpus. We do not prove Turing-completeness formally; the witness is sufficient.
 
@@ -50,34 +50,34 @@ We do not give a denotational semantics. The runtime is not a partial function i
 
 ### 2.1 Character-level pre-processing
 
-Inflexión source files use the `.infl` extension. Source is UTF-8 throughout; the language depends on accented characters (*á*, *é*, *í*, *ó*, *ú*, *ñ*) and on the inverted-question-mark and inverted-exclamation-mark Spanish conventions are not currently used by the syntax but are reserved.
+Inflexión source files use the `.infl` extension. Source is UTF-8 throughout; the language depends on the accented characters *á*, *é*, *í*, *ó*, *ú*, and *ñ*. The Spanish conventions for inverted question marks and inverted exclamation marks are not currently used by the syntax but are reserved.
 
-The lexer first identifies string literals — runs of characters enclosed in `"` double-quotes — and replaces them with placeholder tokens (`Strliteral0`, `Strliteral1`, …) keyed against a side-array `strings`. This allows the rest of the lexer to operate on a stream where every token is whitespace-separated without worrying about whether spaces are inside strings.
+The lexer first identifies string literals, runs of characters enclosed in `"` double-quotes, and replaces them with placeholder tokens (`Strliteral0`, `Strliteral1`, …) keyed against a side-array `strings`. This allows the rest of the lexer to operate on a stream where every token is whitespace-separated without worrying about whether spaces are inside strings.
 
-Numeric literals — runs of digits, optionally with a decimal point — are recognised next. Integer and floating-point literals are distinguished by the presence of the decimal point.
+Numeric literals, runs of digits optionally with a decimal point, are recognised next. Integer and floating-point literals are distinguished by the presence of the decimal point.
 
-Punctuation tokens (`.`, `,`, `;`, `(`, `)`, `[`, `]`) are separated from adjacent identifiers by inserting spaces. The period `.` deserves a note: it is *both* a statement terminator and (potentially, in some constructs) a decimal point. The lexer treats a `.` adjacent to digits as a decimal point and a `.` followed by whitespace or end-of-input as a statement terminator.
+The punctuation tokens `.`, `,`, `;`, `(`, `)`, `[`, and `]` are separated from adjacent identifiers by inserting spaces. The period `.` deserves a note: it is *both* a statement terminator and, in some constructs, potentially a decimal point. The lexer treats a `.` adjacent to digits as a decimal point and a `.` followed by whitespace or end-of-input as a statement terminator.
 
 ### 2.2 Morphological dispatch
 
 Once the source has been pre-processed into a stream of identifiers, numeric literals, string placeholders, and punctuation, each identifier is run through a morphological analyser that produces a `Token` carrying:
 
-- `text` — the original surface form
-- `lower` — the surface form lowercased
-- `lemma` — the canonical dictionary form
-- `pos` — part-of-speech tag
-- `is_numeric` — boolean
-- `is_string_placeholder` — boolean
+- `text`: the original surface form
+- `lower`: the surface form lowercased
+- `lemma`: the canonical dictionary form
+- `pos`: part-of-speech tag
+- `is_numeric`: boolean
+- `is_string_placeholder`: boolean
 
-The analyser is layered. The base layer is spaCy [@honnibal_spacy_2020] with the `es_core_news_sm` Spanish model. spaCy handles regular morphology — noun and adjective inflection, indicative-present verb conjugation, common irregular forms. Above spaCy, a custom rule layer handles the cases where spaCy's tagger is unreliable or absent for our purposes:
+The analyser is layered. The base layer is spaCy [@honnibal_spacy_2020] with the `es_core_news_sm` Spanish model. spaCy handles regular morphology, covering noun and adjective inflection, indicative-present verb conjugation, and common irregular forms. Above spaCy, a custom rule layer handles the cases where spaCy's tagger is unreliable or absent for our purposes:
 
-1. **Vos imperatives.** Rioplatense uses *vos* in the second-person singular instead of *tú*, with distinctive imperative forms (*decí*, *hacé*, *hablá*). spaCy's Spanish models are trained predominantly on peninsular Spanish and tag *decí* inconsistently. The custom layer maintains an explicit override table mapping known vos-imperative surface forms (with and without orthographic accent) to their lemmas: `decí` / `deci` → *decir*; `hacé` / `hace` → *hacer*; `hablá` / `habla` → *hablar*; `escuchá` / `escucha` → *escuchar*.
+1. **Vos imperatives.** Rioplatense uses *vos* in the second-person singular instead of *tú*, with distinctive imperative forms such as *decí*, *hacé*, and *hablá*. spaCy's Spanish models are trained predominantly on peninsular Spanish and tag *decí* inconsistently. The custom layer maintains an explicit override table mapping known vos-imperative surface forms, both with and without the orthographic accent, to their lemmas: `decí` / `deci` → *decir*; `hacé` / `hace` → *hacer*; `hablá` / `habla` → *hablar*; `escuchá` / `escucha` → *escuchar*.
 
-2. **Vos imperatives with enclitic clitic stacks.** Forms like *transferíselo*, *dámelo*, *decílo* (also written *decilo*) are single tokens in the surface but represent a verb plus one or more enclitic pronouns. The lexer applies a regular-expression-based stripping rule: longest-suffix-first, against the closed set of Spanish clitics `{se, te, me, le, lo, la, les, los, las, nos, os}`. After stripping, the bare stem is matched against the vos-imperative override table, and (if matched) the token is annotated with the recovered clitic stack as a tuple in fixed Spanish order: *se* (impersonal/3rd-person reflexive) before *te*/*me* (2nd/1st object) before *lo*/*la*/*les* (3rd object). The grammatical order is canonical Spanish and is documented in standard reference grammars; the lexer enforces it implicitly by attempting strippings in that order.
+2. **Vos imperatives with enclitic clitic stacks.** Forms like *transferíselo*, *dámelo*, and *decílo*, sometimes also written *decilo*, are single tokens in the surface but represent a verb plus one or more enclitic pronouns. The lexer applies a stripping rule based on regular expressions: longest suffix first, against the closed set of Spanish clitics `{se, te, me, le, lo, la, les, los, las, nos, os}`. After stripping, the bare stem is matched against the vos-imperative override table, and on a match the token is annotated with the recovered clitic stack as a tuple in fixed Spanish order: *se* as impersonal or 3rd-person reflexive, then *te* and *me* as 2nd-person and 1st-person object, then *lo*, *la*, and *les* as 3rd-person object. The grammatical order is canonical Spanish and is documented in standard reference grammars; the lexer enforces it implicitly by attempting strippings in that order.
 
-3. **Ordinal positional suffix.** The construction *el N-ésimo de la lista* serves as a positional list reference. The suffix *-ésimo* (Spanish ordinal suffix: *cuadragésimo*, *centésimo*, *milésimo*) is a productive morpheme that combines with cardinal numbers. We extend it to combine with *any identifier whose value is currently bound to a positive integer*: *el i-ésimo de la lista* is the *i*-th element when *i* is bound, where *i* might be a single-letter variable, a multi-letter name, or any other identifier. The lexer recognises the suffix via a regex (`/.*-ésimo$/`) and produces a special token type `VariableOrdinal` carrying the prefix (the variable name) as a field; the parser handles it.
+3. **Ordinal positional suffix.** The construction *el N-ésimo de la lista* serves as a positional list reference. The suffix *-ésimo* is the Spanish ordinal suffix, as in *cuadragésimo*, *centésimo*, and *milésimo*, and is a productive morpheme that combines with cardinal numbers. We extend it to combine with *any identifier whose value is currently bound to a positive integer*: *el i-ésimo de la lista* is the *i*-th element when *i* is bound, where *i* might be a single-letter variable, a multi-letter name, or any other identifier. The lexer recognises the suffix via the regex `/.*-ésimo$/` and produces a special token type `VariableOrdinal` carrying the prefix, the variable name, as a field; the parser handles it.
 
-4. **Diminutive and augmentative suffixes.** Words ending in *-ito*/*-ita* (diminutive), *-ón*/*-ona*, *-azo*/*-aza* (augmentatives) and a small closed set of related forms are recognised at lookup time, not at lex time. The lexer produces these as ordinary identifiers; the diminutive resolution rule in §5.7 (numeric scaling on lookup) does the work.
+4. **Diminutive and augmentative suffixes.** Words ending in *-ito* or *-ita*, which are diminutive, and *-ón*, *-ona*, *-azo*, or *-aza*, which are augmentative, along with a small closed set of related forms, are recognised at lookup time, not at lex time. The lexer produces these as ordinary identifiers; the diminutive resolution rule in §5.7, which performs numeric scaling on lookup, does the work.
 
 ### 2.3 The token type, formally
 
@@ -103,7 +103,7 @@ A `PartOfSpeech` is one of `{noun, verb, adjective, article, conjunction, prepos
 
 ### 3.1 Notational conventions
 
-We present the grammar in extended BNF: lowercase italics for non-terminals, monospace for terminal surface forms, vertical bar for alternation, square brackets for optional, asterisk for zero-or-more. We omit some auxiliary productions (whitespace handling, escape sequences in strings) where they are uninteresting and would only lengthen the presentation.
+We present the grammar in extended BNF: lowercase italics for non-terminals, monospace for terminal surface forms, vertical bar for alternation, square brackets for optional, asterisk for zero-or-more. We omit some auxiliary productions, such as whitespace handling and escape sequences in strings, where they are uninteresting and would only lengthen the presentation.
 
 ### 3.2 Programs and statements
 
@@ -118,7 +118,7 @@ imperative  ::= decir | hablar | imperative-call | clitic-imperative
 control     ::= mientras | cuando | si-statement
 ```
 
-Statements terminate with a `.` (period). The four classes — binding, mutation, imperative, control — are mutually exclusive in their entry shape, and the parser dispatches on the leading tokens.
+Statements terminate with a `.` period. The four classes of binding, mutation, imperative, and control are mutually exclusive in their entry shape, and the parser dispatches on the leading tokens.
 
 ### 3.3 Bindings
 
@@ -129,7 +129,7 @@ ser-binding ::= article identifier "es" value-expression
 article     ::= "el" | "la" | "un" | "una"
 ```
 
-The leading article is a definite or indefinite singular article; the parser treats all four as equivalent for the purpose of binding. Per the project's standing rule (design paper §3.6 footnote), the compiler is silent on gender, so *el* and *la* are interchangeable from the runtime's point of view — the choice is the writer's.
+The leading article is a definite or indefinite singular article; the parser treats all four as equivalent for the purpose of binding. Per the project's standing rule in the design paper's §3.6 footnote, the compiler is silent on gender, so *el* and *la* are interchangeable from the runtime's point of view, and the choice is the writer's.
 
 An `estar`-binding creates a mutable cell:
 
@@ -137,7 +137,7 @@ An `estar`-binding creates a mutable cell:
 estar-binding ::= article identifier "está en" value-expression
 ```
 
-The grammatical difference between `es` (third-person indicative of *ser*, "is" in the essential sense) and `está` (third-person indicative of *estar*, "is" in the situational sense) is the syntactic marker of the binding kind. The semantic difference is the design paper's §3.1.
+The grammatical difference is the syntactic marker of the binding kind: `es` is the third-person indicative of *ser*, "is" in the essential sense, and `está` is the third-person indicative of *estar*, "is" in the situational sense. The semantic difference is the design paper's §3.1.
 
 A plural `ser`-binding creates an immutable collection:
 
@@ -146,7 +146,7 @@ plural-ser-binding ::= plural-article plural-identifier "son" list-literal
 plural-article     ::= "los" | "las"
 ```
 
-The plural-noun discipline is enforced by spaCy's tagger: a noun ending in *-s* (or one of the irregular plurals) is recognised as plural, and only plural nouns can be bound through *son*.
+The plural-noun discipline is enforced by spaCy's tagger: a noun ending in *-s*, or one of the irregular plurals, is recognised as plural, and only plural nouns can be bound through *son*.
 
 A function definition uses a relative clause to declare the parameter list:
 
@@ -156,7 +156,7 @@ parameters      ::= parameter ("," parameter)* | parameter ("y" parameter)
 parameter       ::= ("un" | "una") identifier
 ```
 
-The parameter-list grammar is forgiving: comma-separated, comma-and-*y* hybrid, or *y*-separated are all accepted. The relative-clause syntax (*que toma una a y una b, es ...*) is the Spanish-prose-natural form documented in the design paper's §3.4.
+The grammar for the parameter list is forgiving: comma-separated, comma-and-*y* hybrid, or *y*-separated are all accepted. The relative-clause syntax *que toma una a y una b, es ...* is the form most natural for Spanish prose and is documented in the design paper's §3.4.
 
 ### 3.4 Expressions
 
@@ -192,9 +192,9 @@ variable-ordinal ::= identifier "-ésimo"
 named-ordinal    ::= "primero" | "segundo" | "tercero" | "último" | ...
 ```
 
-The named ordinals (*primero*, *segundo*, …) are equivalent to *1-ésimo*, *2-ésimo*, etc.; the lexer normalises them.
+The named ordinals such as *primero* and *segundo* are equivalent to *1-ésimo*, *2-ésimo*, and so on; the lexer normalises them.
 
-Function calls are positional, with arguments separated by spaces (or by parentheses for arguments that would otherwise look like continuations):
+Function calls are positional, with arguments separated by spaces, or by parentheses for arguments that would otherwise look like continuations:
 
 ```
 function-call ::= identifier (function-arg)+
@@ -232,7 +232,7 @@ list-op   ::= "unir" value-expression "y" value-expression
 
 *El largo de* dispatches on type: a string operand returns its character count; a list operand returns its element count.
 
-(More of the grammar — the imperative forms, the control structures, and the reduction syntax — is presented in §5 alongside their evaluation rules, where the surface and semantics travel together.)
+More of the grammar, namely the imperative forms, the control structures, and the reduction syntax, is presented in §5 alongside their evaluation rules, where the surface and semantics travel together.
 
 ## 4. The abstract machine
 
@@ -251,7 +251,7 @@ Value ::= IntValue(int)
         | Unit
 ```
 
-Integers and floats are unboxed Python `int` and `float` respectively; arithmetic between them follows Python's promotion rules. Strings are immutable. Collections are ordered finite sequences of values; they are heterogeneous (a single collection may mix integers, floats, and strings — see §5.6). Streams are lazy generators produced by imperfective aspect-marked operations (§5.4) and consumed on demand. Function values represent function definitions captured at definition time. Deferred values represent registered observers from *cuando* bindings (§5.9). The unit type — produced by mutations and other side-effecting statements that have no useful return — is rendered as `Unit` and is never observed by user code.
+Integers and floats are unboxed Python `int` and `float` respectively; arithmetic between them follows Python's promotion rules. Strings are immutable. Collections are ordered finite sequences of values, and they are heterogeneous: a single collection may mix integers, floats, and strings, as documented in §5.6. Streams are lazy generators produced by operations marked for imperfective aspect (§5.4) and consumed on demand. Function values represent function definitions captured at definition time. Deferred values represent registered observers from *cuando* bindings (§5.9). The unit type, produced by mutations and other statements with side effects but no useful return, is rendered as `Unit` and is never observed by user code.
 
 ### 4.2 Cells
 
@@ -262,7 +262,7 @@ Cell  ::= (kind: BindingKind, value: Value)
 BindingKind ::= Ser | Estar | PluralSer
 ```
 
-A `Ser` cell is immutable: any attempt to mutate it (via *hacé que ... esté en ...*) raises a runtime error. An `Estar` cell is mutable: `Hacé que ...` rebinds its value in place. A `PluralSer` cell holds a `CollectionValue` and is treated by plural-imperative dispatch (*Decí los precios*, *Hablá los precios*) as syntactically distinct from a `Ser` cell holding the same collection — the plural article on the lookup side enforces the symmetry. The runtime does not allow re-binding *any* cell through the `ser` / `estar` / plural-ser surface forms (`El x es ...`, `La x está en ...`): a name, once bound, is owned by its first binding statement for the lifetime of the enclosing scope. Re-assignment happens through the imperative *Hacé que* form, which mutates an existing `Estar` cell but raises on `Ser` cells.
+A `Ser` cell is immutable: any attempt to mutate it via *hacé que ... esté en ...* raises a runtime error. An `Estar` cell is mutable: `Hacé que ...` rebinds its value in place. A `PluralSer` cell holds a `CollectionValue` and is treated by plural-imperative dispatch, as in *Decí los precios* or *Hablá los precios*, as syntactically distinct from a `Ser` cell holding the same collection; the plural article on the lookup side enforces the symmetry. The runtime does not allow re-binding *any* cell through the `ser`, `estar`, or plural-ser surface forms `El x es ...` and `La x está en ...`: a name, once bound, is owned by its first binding statement for the lifetime of the enclosing scope. Re-assignment happens through the imperative *Hacé que* form, which mutates an existing `Estar` cell but raises on `Ser` cells.
 
 ### 4.3 Environments
 
@@ -278,7 +278,7 @@ The environment also carries two auxiliary structures that do not fit the cell m
 - A *function registry*, populated by function-definition statements (§5.8). This is a flat namespace rather than a scoped one; function names are global within the program.
 - A *deferred-observer list*, populated by *cuando* statements (§5.9). Each observer carries a trigger condition and an action to fire when the condition becomes true.
 
-Both are global in scope — they do not nest with function calls.
+Both are global in scope, and they do not nest with function calls.
 
 ### 4.4 The transition relation
 
@@ -289,13 +289,13 @@ The big-step relation has two shapes, one for statements and one for expressions
 (expr, env) ⇓ value
 ```
 
-A statement transitions an environment to a (possibly updated) environment and emits zero or more characters of output. An expression evaluates against an environment to a value, without modifying the environment and without emitting output. The separation is enforced by the grammar: only statement-forms (mutations, imperatives, control) can emit output or modify environments; expression-forms cannot. *Functions are pure expressions.* They cannot have side effects. This is a deliberate restriction inherited from the design paper's §3.4 (functions as pure transformations) and is the reason the calculator and quicksort programs do their mutation outside function bodies.
+A statement transitions an environment to a possibly updated environment and emits zero or more characters of output. An expression evaluates against an environment to a value, without modifying the environment and without emitting output. The separation is enforced by the grammar: only the statement forms of mutation, imperative, and control can emit output or modify environments; expression forms cannot. *Functions are pure expressions.* They cannot have side effects. This is a deliberate restriction, inherited from the design paper's §3.4 commitment to functions as pure transformations, and is the reason the calculator and quicksort programs do their mutation outside function bodies.
 
 The output stream is concatenated across the program: `output` for the program-as-a-whole is the textual concatenation of the per-statement outputs in source order.
 
 ## 5. Evaluation rules
 
-We present the rules grouped by mapping (or by extension). Each subsection introduces the surface form, an example, and the formal rule. Auxiliary judgments are defined as they are used; we avoid forward references where possible.
+We present the rules grouped by mapping, or by extension. Each subsection introduces the surface form, an example, and the formal rule. Auxiliary judgments are defined as they are used; we avoid forward references where possible.
 
 ### 5.1 *Ser* / *estar* binding
 
@@ -307,7 +307,7 @@ A `Ser` binding evaluates its right-hand side and installs an immutable cell:
 (El x es expr., env) ⇓ (env[x ↦ (Ser, v)], "")
 ```
 
-The choice of indefinite vs definite article (*el* / *la* / *un* / *una*) is irrelevant to the rule; all four entry-shapes produce the same `Ser` cell. The plural article (*los* / *las*) requires a plural noun and a list-literal RHS:
+The choice of indefinite vs definite article, whether *el*, *la*, *un*, or *una*, is irrelevant to the rule; all four entry-shapes produce the same `Ser` cell. The plural article, *los* or *las*, requires a plural noun and a right-hand side that is a list literal:
 
 ```
               (list-expr, env) ⇓ v   v ∈ CollectionValue
@@ -323,7 +323,7 @@ An `Estar` binding installs a mutable cell:
 (El x está en expr., env) ⇓ (env[x ↦ (Estar, v)], "")
 ```
 
-Attempting to bind a name that is already in scope is a runtime error (`InflexionRuntimeError: cannot rebind`). Re-binding must go through the *hacé que* mutation form (§5.2).
+Attempting to bind a name that is already in scope is a runtime error, raised as `InflexionRuntimeError: cannot rebind`. Re-binding must go through the *hacé que* mutation form (§5.2).
 
 ### 5.2 Mutation
 
@@ -357,7 +357,7 @@ Multi-clause mutation bodies are introduced by *y que ...* continuations:
 (mut₁ y que mut₂ y que mut₃ ..., env) ⇓ (envₙ, "")
 ```
 
-Sequential semantics: each later mutation observes the state produced by the earlier ones. This is the choice documented in the design paper's §3.4 footnote; it is the simpler model and the one Spanish-speakers tend to expect from a comma-separated sequence of imperatives.
+Sequential semantics: each later mutation observes the state produced by the earlier ones. This is the choice documented in the design paper's §3.4 footnote; it is the simpler model and the one speakers of Spanish tend to expect from a comma-separated sequence of imperatives.
 
 ### 5.3 Mood: indicative as immediate evaluation
 
@@ -369,7 +369,7 @@ The indicative mood is the eager-evaluation mode. A statement in indicative mood
 (El x es expr., env) ⇓ ([x ↦ (Ser, v)], "")
 ```
 
-(This is the same rule as `[Ser-Bind]` above — we restate it here to make explicit that indicative mood is the binding shape, not a separate primitive.)
+This is the same rule as `[Ser-Bind]` above. We restate it here to make explicit that indicative mood is the binding shape, not a separate primitive.
 
 ### 5.4 Mood: subjunctive as deferred evaluation
 
@@ -386,7 +386,7 @@ When a subsequent mutation sets `env[x]` to the value `v`, the observer fires an
 
 ### 5.5 Mood: imperative as side effect
 
-Imperative-mood statements perform side effects. The output-emitting imperatives are *Decí* (committed utterance, with newline) and *Hablá* (streaming, no newline); the mutation imperative is *Hacé*. The rules:
+Imperative-mood statements perform side effects. The imperatives that emit output are *Decí*, a committed utterance with a trailing newline, and *Hablá*, a streaming form with no newline; the mutation imperative is *Hacé*. The rules:
 
 ```
               (expr, env) ⇓ v
@@ -398,11 +398,11 @@ Imperative-mood statements perform side effects. The output-emitting imperatives
 (Hablá expr., env) ⇓ (env, render(v))
 ```
 
-`render(v)` is a value-to-string function that produces the canonical textual representation of `v` — for integers and floats their Python repr, for strings the string itself, for collections the bracketed comma-separated form. *Decí* appends a newline; *Hablá* does not. This is the only behavioural difference; the call shapes (`Decí "literal"`, `Decí el x`, `Decí los xs`, `Decí expr`) are duplicated identically for *Hablá*.
+`render(v)` is a function from values to strings that produces the canonical textual representation of `v`: for integers and floats their Python repr, for strings the string itself, for collections the bracketed comma-separated form. *Decí* appends a newline; *Hablá* does not. This is the only behavioural difference; the call shapes `Decí "literal"`, `Decí el x`, `Decí los xs`, and `Decí expr` are duplicated identically for *Hablá*.
 
 ### 5.6 Number agreement
 
-The number mapping is enforced at lookup. A singular article (*el* / *la* / *un* / *una*) on a noun phrase requires the cell at that name to hold a non-collection value; a plural article (*los* / *las*) requires a collection.
+The number mapping is enforced at lookup. A singular article, any of *el*, *la*, *un*, or *una*, on a noun phrase requires the cell at that name to hold a non-collection value; a plural article, *los* or *las*, requires a collection.
 
 ```
               env[x] = (_, v)   ¬is-collection(v)
@@ -414,7 +414,7 @@ The number mapping is enforced at lookup. A singular article (*el* / *la* / *un*
 (los xs, env) ⇓ (v₁, ..., vₙ)
 ```
 
-Article-noun number mismatch (*el precios* for a plural collection, *los x* for a scalar) raises a runtime error.
+Article-noun number mismatch, as in *el precios* for a plural collection or *los x* for a scalar, raises a runtime error.
 
 Arithmetic on collections broadcasts elementwise:
 
@@ -455,7 +455,7 @@ augmentative ↦ scale
 -aza       ↦ 4
 ```
 
-(The table above is illustrative; the full set is defined in the runtime's `_DIMINUTIVE_SUFFIXES` constant.)
+The table above is illustrative; the full set is defined in the runtime's `_DIMINUTIVE_SUFFIXES` constant.
 
 ```
    env[x] is undefined   x = base + suffix   suffix → scale   env[base] = (_, n)   n is numeric
@@ -486,13 +486,13 @@ A function call evaluates its arguments left-to-right, pushes a child scope bind
 (f arg₁ ... argₙ, env) ⇓ v
 ```
 
-Functions are pure expressions. The body cannot perform side effects (no *Hacé*, no *Decí*, no *Hablá*); the parser rejects such bodies. A function's body is either an expression or an if-expression (§5.10); both are pure.
+Functions are pure expressions. The body cannot perform side effects, so no *Hacé*, no *Decí*, and no *Hablá*; the parser rejects such bodies. A function's body is either an expression or an if-expression (§5.10); both are pure.
 
 Recursion is supported via late binding: the call `f arg₁ ... argₙ` looks up `f` in the registry at *call* time, not at *definition* time, so a function body can refer to itself or to any other function defined elsewhere in the program.
 
-Parenthesised arguments — `f (expr) (expr)` — are the disambiguation device for arguments that would otherwise be parsed as arithmetic continuations. *fact (la n menos 1)* binds the entire `la n menos 1` expression to the first argument; *fact la n menos 1* (without parens) parses as `(fact la n) menos 1` instead.
+Parenthesised arguments of the form `f (expr) (expr)` are the disambiguation device for arguments that would otherwise be parsed as arithmetic continuations. *fact (la n menos 1)* binds the entire `la n menos 1` expression to the first argument; *fact la n menos 1* without parens parses as `(fact la n) menos 1` instead.
 
-The clitic-routing surface — *Transferíselo*, *Dámelo* — applies positional argument routing through the lexer-recognised clitic stack. The clitics map to argument slots in the canonical Spanish order: *se* → indirect-object slot, *te*/*me* → second/first-person object, *lo*/*la*/*les* → third-person object. The mapping is defined in the design paper's §3.4 and not repeated formally here; we treat the resulting call as semantically equivalent to a positional call with the slots filled accordingly.
+The clitic-routing surface, as seen in *Transferíselo* and *Dámelo*, applies positional argument routing through the clitic stack the lexer recognises. The clitics map to argument slots in the canonical Spanish order: *se* → indirect-object slot, *te* and *me* → second-person and first-person object, *lo*, *la*, and *les* → third-person object. The mapping is defined in the design paper's §3.4 and not repeated formally here; we treat the resulting call as semantically equivalent to a positional call with the slots filled accordingly.
 
 ### 5.9 Control flow
 
@@ -509,7 +509,7 @@ The *mientras* (while) loop:
 (mientras cond, body., env) ⇓ (env, "")
 ```
 
-The body of a *mientras* loop is either a single imperative or a *BodySequence* — a sequence of *y que* mutation clauses optionally prefixed by an `Si` (conditional) statement. The semantics of the *Si* prefix is the rule below; the *y que* tail evaluates left-to-right.
+The body of a *mientras* loop is either a single imperative or a *BodySequence*, which is a sequence of *y que* mutation clauses optionally prefixed by an `Si` conditional statement. The semantics of the *Si* prefix is the rule below; the *y que* tail evaluates left-to-right.
 
 The *Si* (if) statement chains conditional arms:
 
@@ -523,7 +523,7 @@ The *Si* (if) statement chains conditional arms:
 (si cond₁, body₁; sino, si cond₂, body₂; ...; sino, else-body., env) ⇓ (env', o)
 ```
 
-If no arm matches and no *sino* (else) clause is present, the statement reduces to *(env, "")* (no-op).
+If no arm matches and no *sino* (else) clause is present, the statement reduces to *(env, "")*, a no-op.
 
 The *cuando* deferred binding registers an observer (see §5.4). Observer firing happens during the *next* mutation that brings the trigger value into the cell:
 
@@ -604,7 +604,7 @@ The list-mutation rule was given in §5.2. Note that all list operations except 
 
 ### 5.13 Aspect: eager vs lazy
 
-The aspect mapping is the only place where the surface form selects between two distinct execution strategies. The perfective form of a reduction (*sumó*, *calculó*) is the [Reduction-Eager] rule:
+The aspect mapping is the only place where the surface form selects between two distinct execution strategies. The perfective form of a reduction, as in *sumó* or *calculó*, is the [Reduction-Eager] rule:
 
 ```
    (xs, env) ⇓ (v₁, v₂, ..., vₙ)
@@ -612,7 +612,7 @@ The aspect mapping is the only place where the surface form selects between two 
 (sumó xs, env) ⇓ v₁ + v₂ + ... + vₙ
 ```
 
-The imperfective form (*sumaba*, *calculaba*) is the [Reduction-Lazy] rule:
+The imperfective form, as in *sumaba* or *calculaba*, is the [Reduction-Lazy] rule:
 
 ```
    (xs, env) ⇓ (v₁, v₂, ..., vₙ)
@@ -620,76 +620,74 @@ The imperfective form (*sumaba*, *calculaba*) is the [Reduction-Lazy] rule:
 (sumaba xs, env) ⇓ Stream(v₁, v₁+v₂, ..., v₁+...+vₙ)
 ```
 
-A `Stream` value is consumed lazily: rendering it via *Decí* or *Hablá* materialises it in full and emits the elements separated by commas with an ellipsis terminator (`"v₁, v₂, ..., vₙ, ..."`) to indicate the stream nature. Other operations on a `Stream` (arithmetic, indexed access) materialise as needed.
+A `Stream` value is consumed lazily: rendering it via *Decí* or *Hablá* materialises it in full and emits the elements separated by commas with an ellipsis terminator of the form `"v₁, v₂, ..., vₙ, ..."` to indicate the stream nature. Other operations on a `Stream`, such as arithmetic and indexed access, materialise as needed.
 
-This is the only place where Inflexión performs *lazy* evaluation. Every other expression form (function bodies, indexed access, list operations) is strictly evaluated. The lazy aspect is the only opt-in, and the morpheme that selects it (*-aba* / *-ía* on the verb suffix) is the entire interface.
+This is the only place where Inflexión performs *lazy* evaluation. Every other expression form, including function bodies, indexed access, and list operations, is strictly evaluated. The lazy aspect is the only opt-in, and the morpheme that selects it, *-aba* or *-ía* on the verb suffix, is the entire interface.
 
 ## 6. Turing-completeness
 
 The design paper's §4.3 argues that *mientras* iteration combined with self-referential *ser* recursion is sufficient for Turing-completeness. We do not give a formal proof; we give a worked witness.
 
-The example program `examples/brainfuck.infl` is an interpreter for Brainfuck written entirely in Inflexión, including bracket-matching helpers (*cierre1*, *buscar_cierre*, *apertura1*, *buscar_apertura*), an instruction-pointer dispatch loop, and a tape (*tira*) with cell-level indexed mutation. The dispatch loop uses a *Si* chain inside a *Mientras* body to switch on the current Brainfuck instruction; the bracket-matching helpers use mutual recursion and the indexed-set rule from §5.2. The interpreter runs the canonical 106-character "Hello World!" Brainfuck program through the test suite (`tests/test_brainfuck.py`) and produces the correct output, including a single trailing newline emitted by the source program itself (chr(10)) rather than by Inflexión.
+The example program `examples/brainfuck.infl` is an interpreter for Brainfuck written entirely in Inflexión. It includes bracket-matching helpers named *cierre1*, *buscar_cierre*, *apertura1*, and *buscar_apertura*, an instruction-pointer dispatch loop, and a tape (*tira*) with cell-level indexed mutation. The dispatch loop uses a *Si* chain inside a *Mientras* body to switch on the current Brainfuck instruction; the bracket-matching helpers use mutual recursion and the indexed-set rule from §5.2. The interpreter runs the canonical 106-character "Hello World!" Brainfuck program through the test suite at `tests/test_brainfuck.py` and produces the correct output, including a single trailing newline emitted by the source program itself via `chr(10)` rather than by Inflexión.
 
 Brainfuck is well-known to be Turing-complete [@mueller_brainfuck_1993]; a working interpreter establishes Inflexión as at least as expressive as Brainfuck. Combined with the design-paper §4.3 argument that the *mientras* + recursion subset is sufficient even without the rest of the language, we treat Turing-completeness as established.
 
 ## 7. Type discipline
 
-Inflexión is *dynamically typed* with no checking before execution. Every operation can fail at runtime if its operands are of the wrong type; there is no static type checker, no type inference pass, and no type-annotation surface. The decision is driven by the project's commitment to Spanish-prose surface: Spanish-prose readers do not write or read type annotations, and adding them would dilute the contribution.
+Inflexión is *dynamically typed* with no checking before execution. Every operation can fail at runtime if its operands are of the wrong type; there is no static type checker, no type inference pass, and no surface for type annotations. The decision is driven by the project's commitment to a surface that reads as Spanish prose: readers of Spanish prose do not write or read type annotations, and adding them would dilute the contribution.
 
-The type-check rules are stated implicitly throughout §5: arithmetic operators require numeric operands; *el carácter N de* requires a string operand and an integer index; *el i-ésimo de* requires a collection operand and an integer index; mutation requires an estar-bound cell; indexed mutation requires an estar-bound cell holding a collection; and so on. Each rule's premise that an operand "is numeric" or "is a collection" is a runtime check, and the failure mode is a runtime error (§8).
+The type-check rules are stated implicitly throughout §5: arithmetic operators require numeric operands; *el carácter N de* requires a string operand and an integer index; *el i-ésimo de* requires a collection operand and an integer index; mutation requires an estar-bound cell; indexed mutation requires an estar-bound cell holding a collection; and so on. Each rule's premise that an operand "is numeric" or "is a collection" is a runtime check, and the failure mode is a runtime error per §8.
 
 The one place where Inflexión's surface enforces a type-like discipline is *number*: a singular article on a name binds it to a non-collection value; a plural article binds it to a collection. The article-noun-number agreement is the syntactic marker of the type. This is the design paper's §3.6 mapping and the lookup rules of §5.6 above.
 
 ## 8. Error model
 
-A runtime error in Inflexión is an instance of `InflexionRuntimeError`, raised by the interpreter and not catchable by user code (the language has no exception-handling surface). Each error carries a message identifying the rule that failed and, where possible, the surface form that triggered it.
+A runtime error in Inflexión is an instance of `InflexionRuntimeError`, raised by the interpreter and not catchable by user code, since the language has no exception-handling surface. Each error carries a message identifying the rule that failed and, where possible, the surface form that triggered it.
 
 The categories are:
 
 1. **Lookup errors.** The name is not bound and no diminutive resolution applies. Message: "name not bound: x".
 2. **Article-number mismatch.** A singular article on a plural cell, or a plural article on a singular cell.
-3. **Type errors.** The operand of an operation is of the wrong type. (Examples: arithmetic on a string; *el carácter N de* on a non-string; indexed access on a non-collection.)
+3. **Type errors.** The operand of an operation is of the wrong type. Examples include arithmetic on a string, *el carácter N de* on a non-string, and indexed access on a non-collection.
 4. **Index errors.** Out-of-range indexed access or indexed mutation.
 5. **Mutation errors.** Mutation attempted on a `Ser` cell; rebinding attempted on an already-bound name.
 6. **Arity errors.** A function call with the wrong number of arguments.
 7. **Division and modulo by zero.** Surfaces as a runtime error from the [Arith-Entre] and [Arith-Modulo] rules.
 8. **Stream errors.** An attempt to consume a stream after its source has been mutated, or an out-of-range materialisation request.
 
-A parse error — a syntactic violation of the grammar in §3 — is an instance of `InflexionParseError`, raised by the parser before any execution begins. Parse errors are not catchable.
+A parse error, which is a syntactic violation of the grammar in §3, is an instance of `InflexionParseError`, raised by the parser before any execution begins. Parse errors are not catchable.
 
 ## 9. Implementation notes
 
 The interpreter is implemented in Python 3.11 in the `inflexion` package. The pipeline is:
 
 1. `inflexion.lexer.lex(source: str)` returns a `(tokens, strings)` pair, where `tokens` is a list of `Token` records and `strings` is a side array of string-literal contents indexed by placeholder index.
-2. `inflexion.parser.parse(tokens, strings)` returns a `Program` (an AST node defined in `inflexion.ast`).
+2. `inflexion.parser.parse(tokens, strings)` returns a `Program`, an AST node defined in `inflexion.ast`.
 3. `inflexion.interpreter.run(program, env)` executes the program against the supplied environment and returns the captured output as a string.
 
 The public API `inflexion.run_source(source, *, stdin="")` composes these three steps, returning the captured stdout. The CLI `python -m inflexion run <file>` reads a `.infl` file, runs it, and writes the output to stdout.
 
-The lexer uses spaCy [@honnibal_spacy_2020] with the `es_core_news_sm` Spanish model for the base morphological tagging. The custom rule layer (described in §2) is implemented in `inflexion.lexer._VOS_IMPERATIVE_LEMMAS`, `inflexion.lexer._strip_clitic_stack`, and `inflexion.lexer._VAR_ORDINAL_RE`. Future Spanish-language extensions to the lexer should follow the same pattern: extend the override table or the regex set, and add tests in `tests/`.
+The lexer uses spaCy [@honnibal_spacy_2020] with the `es_core_news_sm` Spanish model for the base morphological tagging. The custom rule layer, described in §2, is implemented in `inflexion.lexer._VOS_IMPERATIVE_LEMMAS`, `inflexion.lexer._strip_clitic_stack`, and `inflexion.lexer._VAR_ORDINAL_RE`. Future extensions for Spanish should follow the same pattern: extend the override table or the regex set, and add tests in `tests/`.
 
-The test suite (`tests/`) has one file per example program and one per runtime feature group. The suite is run with `pytest tests/` and is the canonical correctness oracle: any claim in this paper that is contradicted by a test failure is wrong, and the test wins.
+The test suite at `tests/` has one file per example program and one per runtime feature group. The suite is run with `pytest tests/` and is the canonical correctness oracle: any claim in this paper that is contradicted by a test failure is wrong, and the test wins.
 
 ## 10. Open questions
 
-The runtime as it stands is complete in the sense documented in this paper: every grammatical-semantic mapping from the design paper, plus the extensions listed in §3 and §5, has a corresponding evaluation rule and a corresponding implementation. There remain, however, a number of choices that are deliberately deferred to future installments and that this paper does not attempt to settle.
+The runtime as it stands is complete in the sense documented in this paper: every mapping from grammar to semantics in the design paper, plus the extensions listed in §3 and §5, has a corresponding evaluation rule and a corresponding implementation. There remain, however, a number of choices that are deliberately deferred to future installments and that this paper does not attempt to settle.
 
-**Concurrency.** The language has no concurrency primitives. Spanish has rich morphological resources for marking habituality, reciprocity, and reflexivity, any of which could in principle map to a concurrency primitive (a reflexive verb form for self-spawning processes, for instance). We have not explored this.
+**Concurrency.** The language has no concurrency primitives. Spanish has rich morphological resources for marking habituality, reciprocity, and reflexivity, any of which could in principle map to a concurrency primitive, for instance a reflexive verb form for self-spawning processes. We have not explored this.
 
-**Pattern matching.** The conditional-dispatch surface in §5.9 is the *Si*-chain form, which is structurally a series of binary tests. Spanish has rich resources for nominal classification (definite vs indefinite article, masculine vs feminine, singular vs plural, animate vs inanimate, sometimes overtly marked, sometimes implicit) that could be borrowed for pattern matching on value shape. We have not designed this.
+**Pattern matching.** The conditional-dispatch surface in §5.9 is the *Si*-chain form, which is structurally a series of binary tests. Spanish has rich resources for nominal classification, such as definite vs indefinite article, masculine vs feminine, singular vs plural, and animate vs inanimate, sometimes overtly marked and sometimes implicit, that could be borrowed for pattern matching on value shape. We have not designed this.
 
-**Exception handling.** §8 notes that runtime errors are not catchable. Spanish has morphological resources for marking hypothetical / unrealized outcomes (the subjunctive, again) that could be borrowed for a *try ... if it goes wrong, do ...* surface. We have not designed this.
+**Exception handling.** §8 notes that runtime errors are not catchable. Spanish has morphological resources for marking hypothetical or unrealized outcomes, the subjunctive once again, that could be borrowed for a surface of the form *try ... if it goes wrong, do ...*. We have not designed this.
 
-**A static type system.** §7 commits to dynamic typing. We are not certain this is permanent. The number-agreement enforcement (singular vs plural article on a cell) is a syntactic type-check by another name, and one could imagine extending it to (say) gender as a phantom type marker. Doing so would conflict with the standing rule that the compiler is silent on gender, so this would be a design departure, not just an extension.
+**A static type system.** §7 commits to dynamic typing. We are not certain this is permanent. The enforcement of number agreement, the choice of singular vs plural article on a cell, is a syntactic type-check by another name, and one could imagine extending it to, for instance, gender as a phantom type marker. Doing so would conflict with the standing rule that the compiler is silent on gender, so this would be a design departure, not just an extension.
 
-**The empirical LLM-prompting study.** The design paper's §6 stated a hypothesis: that a programming language whose surface syntax mirrors a more grammatically dense natural language may be a denser substrate for LLM prompting and code generation than English-keyworded equivalents. This paper has not tested that hypothesis. A separate installment, with a measurement protocol, a controlled corpus, and a comparison against English-keyworded reference implementations, is required.
+**The empirical LLM-prompting study.** The design paper's §6 stated a hypothesis: that a programming language whose surface syntax mirrors a more grammatically dense natural language may be a denser substrate for LLM prompting and code generation than its equivalents that use English keywords. This paper has not tested that hypothesis. A separate installment, with a measurement protocol, a controlled corpus, and a comparison against reference implementations using English keywords, is required.
 
-**A program corpus.** The example corpus (`examples/`) at the time of writing contains twenty programs, ranging from one-liners to the ~3000-character Brainfuck interpreter. A larger, more deliberate corpus — chosen to exercise specific evaluation rules in the most informative ways — would be useful both as a regression suite and as the input to the empirical study above.
+**A program corpus.** The example corpus in `examples/` at the time of writing contains twenty programs, ranging from one-liners to the ~3000-character Brainfuck interpreter. A larger, more deliberate corpus, chosen to exercise specific evaluation rules in the most informative ways, would be useful both as a regression suite and as the input to the empirical study above.
 
 The runtime is described; the choices remaining are design choices, not implementation gaps.
 
----
-
-*Inflexión is a hand-built esoteric programming language whose semantics flow from the grammatical features of Rioplatense Argentine Spanish. The first installment (the design paper) is at <https://www.roderickc.com/inflexion>. The implementation lives at <https://github.com/Roderick-Consulting-Inc/inflexion>, and the language is catalogued on the esolangs.org wiki at <https://esolangs.org/wiki/Inflexión>. The companion methodology paper, on Babel — the runtime that generates esoteric programming languages from parameter sheets — is at <https://www.roderickc.com/babel>.*
+*Inflexión is a hand-built esoteric programming language whose semantics flow from the grammatical features of Rioplatense Argentine Spanish. The first installment, the design paper, is at <https://www.roderickc.com/inflexion>. The implementation lives at <https://github.com/Roderick-Consulting-Inc/inflexion>, and the language is catalogued on the esolangs.org wiki at <https://esolangs.org/wiki/Inflexión>. The companion methodology paper, on Babel, the runtime that generates esoteric programming languages from parameter sheets, is at <https://www.roderickc.com/babel>.*
 
